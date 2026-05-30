@@ -119,7 +119,7 @@ Full architecture diagram with all AWS service connections: [`docs/architecture.
 | API gateway | Amazon API Gateway |
 | Auth | Amazon Cognito |
 | Security | WAF, Shield, VPC, IAM |
-| CI/CD | CodePipeline + CodeBuild |
+| CI/CD | GitHub Actions |
 | IaC | Terraform |
 | Observability | CloudWatch, X-Ray, Prometheus, Grafana |
 
