@@ -1,244 +1,136 @@
-"""
-CV Pipeline — YOLOv8 Detection Worker
-Reads .mp4 → detects people → publishes events to Kafka → updates Redis
-"""
-
-from __future__ import annotations
-
-import asyncio
-import json
-import logging
 import os
-import time
-import uuid
-from collections import defaultdict
-from pathlib import Path
-
 import cv2
-import numpy as np
-import redis
-from aiokafka import AIOKafkaProducer
+import json
+import time
+import signal
+import sys
+from kafka import KafkaProducer
 from ultralytics import YOLO
+import numpy as np
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-log = logging.getLogger("worker")
+# Environment variables with defaults
+MIN_CONFIDENCE = float(os.getenv('MIN_CONFIDENCE', '0.4'))
+FRAME_SKIP = int(os.getenv('FRAME_SKIP', '3'))
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+KAFKA_TOPIC = os.getenv('KAFKA_TOPIC', 'cv.detections')
+VIDEO_SOURCE = os.getenv('VIDEO_SOURCE', '0')  # Can be file path, RTSP URL, or camera index
+CAMERA_ID = os.getenv('CAMERA_ID', 'camera_0')
 
-# ── Config ─────────────────────────────────────────────────────────
+# Global flag for running state
+running = True
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
-TOPIC_DETECTIONS = os.getenv("KAFKA_TOPIC_DETECTIONS", "cv.detections")
-TOPIC_ANOMALIES = os.getenv("KAFKA_TOPIC_ANOMALIES", "cv.anomalies")
-TOPIC_HEARTBEATS = os.getenv("KAFKA_TOPIC_HEARTBEATS", "cv.heartbeats")
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-REDIS_PUBSUB = os.getenv("REDIS_PUBSUB_CHANNEL", "cv:alerts")
+def signal_handler(sig, frame):
+    global running
+    print('Received shutdown signal. Stopping gracefully...')
+    running = False
 
-MODEL_PATH = os.getenv("YOLO_MODEL", "yolov8n.pt")
-CONF_THRESHOLD = float(os.getenv("YOLO_CONF_THRESHOLD", "0.4"))
-YOLO_CLASSES = [int(c) for c in os.getenv("YOLO_CLASSES", "0").split(",")]
-VIDEO_SOURCE = os.getenv("VIDEO_SOURCE", "/videos/input.mp4")
-VIDEO_LOOP = os.getenv("VIDEO_LOOP", "true").lower() == "true"
-FRAME_SKIP = int(os.getenv("FRAME_SKIP", "3"))
-
-DWELL_THRESHOLD = int(os.getenv("DWELL_THRESHOLD_SEC", "30"))
-CROWD_THRESHOLD = int(os.getenv("CROWD_THRESHOLD_COUNT", "10"))
-
-CAMERA_ID = os.getenv("CAMERA_ID", "cam-01")
-
-
-# ── Heatmap ────────────────────────────────────────────────────────
-
-class HeatmapGrid:
-    """10×10 grid accumulating centroid hits for Redis storage."""
-
-    GRID = 10
-
-    def __init__(self, frame_w: int, frame_h: int):
-        self.fw = frame_w
-        self.fh = frame_h
-        self.grid: np.ndarray = np.zeros((self.GRID, self.GRID), dtype=np.int32)
-
-    def update(self, cx: float, cy: float):
-        col = min(int(cx / self.fw * self.GRID), self.GRID - 1)
-        row = min(int(cy / self.fh * self.GRID), self.GRID - 1)
-        self.grid[row][col] += 1
-
-    def to_list(self) -> list[list[int]]:
-        return self.grid.tolist()
-
-
-# ── Dwell / Crowd Anomaly Detector ────────────────────────────────
-
-class AnomalyDetector:
-    def __init__(self):
-        self._track_first_seen: dict[int, float] = {}
-        self._track_last_seen: dict[int, float] = {}
-        self._fired_dwell: set[int] = set()
-
-    def update(self, track_ids: list[int], now: float) -> list[dict]:
-        anomalies = []
-
-        # Crowd check
-        if len(track_ids) >= CROWD_THRESHOLD:
-            anomalies.append({
-                "anomaly_id": str(uuid.uuid4()),
-                "anomaly_type": "crowd",
-                "camera_id": CAMERA_ID,
-                "timestamp": now,
-                "severity": "high" if len(track_ids) >= CROWD_THRESHOLD * 1.5 else "medium",
-                "metadata": {"count": len(track_ids), "threshold": CROWD_THRESHOLD},
-            })
-
-        # Dwell check
-        for tid in track_ids:
-            if tid not in self._track_first_seen:
-                self._track_first_seen[tid] = now
-            self._track_last_seen[tid] = now
-            dwell = now - self._track_first_seen[tid]
-            if dwell >= DWELL_THRESHOLD and tid not in self._fired_dwell:
-                self._fired_dwell.add(tid)
-                anomalies.append({
-                    "anomaly_id": str(uuid.uuid4()),
-                    "anomaly_type": "dwell",
-                    "camera_id": CAMERA_ID,
-                    "timestamp": now,
-                    "severity": "medium",
-                    "metadata": {"track_id": tid, "dwell_sec": round(dwell, 1)},
-                })
-
-        # Evict stale tracks (not seen for 5 s)
-        stale = [tid for tid, ts in self._track_last_seen.items() if now - ts > 5]
-        for tid in stale:
-            self._track_first_seen.pop(tid, None)
-            self._track_last_seen.pop(tid, None)
-            self._fired_dwell.discard(tid)
-
-        return anomalies
-
-
-# ── Main pipeline ──────────────────────────────────────────────────
-
-async def run():
-    log.info("Loading YOLOv8 model: %s", MODEL_PATH)
-    model = YOLO(MODEL_PATH)
-
-    log.info("Connecting to Kafka: %s", KAFKA_BOOTSTRAP)
-    producer = AIOKafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP,
-        value_serializer=lambda v: json.dumps(v).encode(),
+def main():
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Initialize Kafka producer
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
-    await producer.start()
-
-    log.info("Connecting to Redis: %s", REDIS_URL)
-    r = redis.from_url(REDIS_URL, decode_responses=True)
-
-    anomaly_detector = AnomalyDetector()
-    heatmap: HeatmapGrid | None = None
-    frame_count = 0
-
-    while True:
-        if not Path(VIDEO_SOURCE).exists():
-            log.warning("Video not found at %s — retrying in 5 s", VIDEO_SOURCE)
-            await asyncio.sleep(5)
-            continue
-
+    
+    # Load YOLOv8n model with ByteTrack tracker
+    model = YOLO('yolov8n.pt')  # Will download if not present
+    # Note: The tracker config file 'bytetrack.yaml' is expected to be in the same directory or accessible via ultralytics
+    # We'll use the built-in ByteTrack tracker by name
+    
+    # Open video source
+    if VIDEO_SOURCE.isdigit():
+        cap = cv2.VideoCapture(int(VIDEO_SOURCE))
+    else:
         cap = cv2.VideoCapture(VIDEO_SOURCE)
-        fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        fh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps_source = cap.get(cv2.CAP_PROP_FPS) or 25
-        heatmap = HeatmapGrid(fw, fh)
-        log.info("Opened %s  (%dx%d @ %.1f fps)", VIDEO_SOURCE, fw, fh, fps_source)
-
-        t_start = time.time()
-        while cap.isOpened():
+    
+    if not cap.isOpened():
+        print(f"Error: Could not open video source {VIDEO_SOURCE}")
+        sys.exit(1)
+    
+    # Get video properties
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"Video source opened: {VIDEO_SOURCE} ({width}x{height} @ {fps}fps)")
+    
+    frame_count = 0
+    processed_count = 0
+    start_time = time.time()
+    last_log_time = start_time
+    
+    try:
+        while running and cap.isOpened():
             ret, frame = cap.read()
             if not ret:
+                print("End of video stream or failed to read frame")
                 break
-
+            
             frame_count += 1
-            if frame_count % FRAME_SKIP != 0:
+            
+            # Skip frames based on FRAME_SKIP
+            if frame_count % (FRAME_SKIP + 1) != 0:
                 continue
-
-            t_frame = time.time()
-
-            # YOLOv8 inference with ByteTrack
-            results = model.track(
-                frame,
-                persist=True,
-                conf=CONF_THRESHOLD,
-                classes=YOLO_CLASSES,
-                verbose=False,
-            )
-
+            
+            processed_count += 1
+            
+            # Run YOLO tracking with ByteTrack
+            results = model.track(frame, persist=True, tracker="bytetrack.yaml", classes=[0], conf=MIN_CONFIDENCE, verbose=False)
+            
             detections = []
-            track_ids: list[int] = []
-
-            for box in results[0].boxes:
-                if box.id is None:
-                    continue
-                tid = int(box.id.item())
-                track_ids.append(tid)
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-                heatmap.update(cx, cy)
-                detections.append({
-                    "track_id": tid,
-                    "bbox": [round(x1), round(y1), round(x2), round(y2)],
-                    "conf": round(float(box.conf.item()), 3),
-                    "class_id": int(box.cls.item()),
-                    "centroid": [round(cx), round(cy)],
-                })
-
-            elapsed = time.time() - t_frame
-            fps = round(1 / max(elapsed, 0.001), 1)
-
-            # ── Publish to Kafka: cv.detections ──
-            detection_event = {
-                "frame_id": frame_count,
-                "timestamp": t_frame,
-                "camera_id": CAMERA_ID,
-                "detections": detections,
-                "fps": fps,
+            if results[0].boxes is not None and len(results[0].boxes) > 0:
+                boxes = results[0].boxes
+                for i in range(len(boxes)):
+                    # Extract box data
+                    box = boxes[i]
+                    track_id = int(box.id.item()) if box.id is not None else -1
+                    bbox = box.xyxy[0].tolist()  # [x1, y1, x2, y2]
+                    confidence = float(box.conf.item())
+                    class_id = int(box.cls.item())
+                    
+                    # Calculate centroid
+                    x1, y1, x2, y2 = bbox
+                    cx = (x1 + x2) / 2
+                    cy = (y1 + y2) / 2
+                    
+                    detections.append({
+                        'track_id': track_id,
+                        'bbox': [round(x, 2) for x in bbox],
+                        'confidence': round(confidence, 4),
+                        'centroid': [round(cx, 2), round(cy, 2)]
+                    })
+            
+            # Prepare event
+            event = {
+                'frame_id': frame_count,
+                'timestamp': time.time(),
+                'camera_id': CAMERA_ID,
+                'fps': round(fps, 2),
+                'detections': detections
             }
-            await producer.send(TOPIC_DETECTIONS, value=detection_event)
-
-            # ── Update Redis counters ──
-            pipe = r.pipeline()
-            pipe.incrby("cv:stats:detections", len(detections))
-            pipe.sadd("cv:tracks", *([str(tid) for tid in track_ids] or ["__noop__"]))
-            pipe.set("cv:stats:avg_fps", fps)
-            pipe.set("cv:heatmap:10x10", json.dumps(heatmap.to_list()))
-            if len(detections) > int(r.get("cv:stats:peak_crowd") or 0):
-                pipe.set("cv:stats:peak_crowd", len(detections))
-            pipe.execute()
-
-            # ── Anomaly detection + publish ──
-            anomalies = anomaly_detector.update(track_ids, t_frame)
-            for anom in anomalies:
-                await producer.send(TOPIC_ANOMALIES, value=anom)
-                r.incrby("cv:stats:anomalies", 1)
-                r.publish(REDIS_PUBSUB, json.dumps(anom))
-                log.warning("🚨 Anomaly: %s  camera=%s", anom["anomaly_type"], CAMERA_ID)
-
-            # ── Heartbeat every 100 frames ──
-            if frame_count % 100 == 0:
-                await producer.send(TOPIC_HEARTBEATS, value={
-                    "worker": "yolo-worker",
-                    "ts": time.time(),
-                    "frame": frame_count,
-                    "fps": fps,
-                })
-                log.info("Frame %d | %d detections | fps=%.1f", frame_count, len(detections), fps)
-
+            
+            # Send to Kafka
+            producer.send(KAFKA_TOPIC, event)
+            
+            # Log processing FPS every 30 seconds
+            current_time = time.time()
+            if current_time - last_log_time >= 30:
+                elapsed = current_time - start_time
+                if elapsed > 0:
+                    processing_fps = processed_count / elapsed
+                    print(f"Processed {processed_count} frames in {elapsed:.2f}s - {processing_fps:.2f} FPS")
+                last_log_time = current_time
+                
+    except Exception as e:
+        print(f"Error during processing: {e}")
+    finally:
+        # Clean up
         cap.release()
-        if VIDEO_LOOP:
-            log.info("Video ended — looping.")
-            await asyncio.sleep(1)
-        else:
-            log.info("Video ended — worker done.")
-            break
-
-    await producer.stop()
-
+        producer.flush()
+        producer.close()
+        print("Worker stopped.")
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    main()

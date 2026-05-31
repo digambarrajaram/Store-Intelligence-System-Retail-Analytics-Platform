@@ -1,363 +1,209 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║         CV PIPELINE — FAANG-STYLE DOCKER COMPOSE               ║
-# ║         Kafka · Redis · FastAPI · YOLOv8 · React Dashboard     ║
-# ╚══════════════════════════════════════════════════════════════════╝
+version: '3.8'
 
-x-logging: &default-logging
-  driver: "json-file"
-  options:
-    max-size: "10m"
-    max-file: "3"
-
-x-restart: &always-restart
-  restart: unless-stopped
-
-x-healthcheck-defaults: &healthcheck-defaults
-  interval: 15s
-  timeout: 5s
-  retries: 5
-  start_period: 30s
-
-networks:
-  cv_backbone:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
-  cv_internal:          # No external access — worker ↔ broker only
-    driver: bridge
-    internal: true
-
-volumes:
-  kafka_data:
-  zookeeper_data:
-  zookeeper_log:
-  redis_data:
-  model_cache:
-
-  detection_output:
+# NOTE: Copy .env.example to .env and adjust values as needed.
+# The .env file is used for variable substitution in this compose file (e.g., ${API_PORT}).
 
 services:
-
-  # ──────────────────────────────────────────────
-  # LAYER 0 — INFRA: Zookeeper (Kafka dependency)
-  # ──────────────────────────────────────────────
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    container_name: cv_zookeeper
-    <<: *always-restart
-    logging: *default-logging
-    networks:
-      - cv_internal
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SYNC_LIMIT: 2
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper
+    container_name: zookeeper
+    restart: unless-stopped
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_log:/var/lib/zookeeper/log
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     healthcheck:
-      <<: *healthcheck-defaults
-      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
 
-  # ──────────────────────────────────────────────
-  # LAYER 0 — INFRA: Kafka Broker
-  # Topics auto-created on first publish:
-  #   cv.detections   — raw YOLO frames
-  #   cv.anomalies    — dwell / crowd events
-  #   cv.heartbeats   — worker liveness
-  # ──────────────────────────────────────────────
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
-    container_name: cv_kafka
-    <<: *always-restart
-    logging: *default-logging
+    image: confluentinc/cp-kafka:latest
+    hostname: kafka
+    container_name: kafka
+    restart: unless-stopped
     depends_on:
       zookeeper:
         condition: service_healthy
-    networks:
-      - cv_backbone
-      - cv_internal
-    ports:
-      - "9092:9092"       # host access for local dev / testing
-      - "9101:9101"       # JMX metrics
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      # Dual listeners: INTERNAL (container-to-container) + EXTERNAL (host)
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
-      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://localhost:9092"
-      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
-      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092"
-      # Retention & performance
-      KAFKA_LOG_RETENTION_HOURS: 24
-      KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-      KAFKA_NUM_PARTITIONS: 3
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_JMX_PORT: 9101
-      KAFKA_JMX_HOSTNAME: localhost
-      # Consumer group rebalance tuning
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-    volumes:
-      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      <<: *healthcheck-defaults
-      test:
-        [
-          "CMD",
-          "kafka-broker-api-versions",
-          "--bootstrap-server",
-          "localhost:9092",
-        ]
-
-  # ──────────────────────────────────────────────
-  # LAYER 0 — INFRA: Kafka UI (dev observability)
-  # Open http://localhost:8080
-  # ──────────────────────────────────────────────
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: cv_kafka_ui
-    <<: *always-restart
-    logging: *default-logging
-    depends_on:
-      kafka:
-        condition: service_healthy
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
-      - cv_backbone
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: "cv-local"
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
-      KAFKA_CLUSTERS_0_ZOOKEEPER: "zookeeper:2181"
-      DYNAMIC_CONFIG_ENABLED: "true"
+      - store-net
 
-  # ──────────────────────────────────────────────
-  # LAYER 0 — INFRA: Redis
-  # Use-cases:
-  #   • Rate-limit counters (INCR / EXPIRE)
-  #   • Pub/Sub → WebSocket fan-out
-  #   • Dwell-time sliding window (ZSET)
-  #   • Crowd density cache (SET + TTL)
-  # ──────────────────────────────────────────────
   redis:
-    image: redis:7.2-alpine
-    container_name: cv_redis
-    <<: *always-restart
-    logging: *default-logging
-    networks:
-      - cv_backbone
-    ports:
-      - "6379:6379"
-    command: >
-      redis-server
-      --appendonly yes
-      --appendfsync everysec
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-      --loglevel notice
+    image: redis:latest
+    hostname: redis
+    container_name: redis
+    restart: unless-stopped
     volumes:
       - redis_data:/data
+    environment:
+      - REDIS_REPLICATION_MODE=master
     healthcheck:
-      <<: *healthcheck-defaults
       test: ["CMD", "redis-cli", "ping"]
-
-  # ──────────────────────────────────────────────
-  # LAYER 1 — CORE: Kafka Topic Bootstrap
-  # Creates topics with correct partition/replica
-  # settings before any producer starts.
-  # ──────────────────────────────────────────────
-  kafka-init:
-    image: confluentinc/cp-kafka:7.6.0
-    container_name: cv_kafka_init
-    depends_on:
-      kafka:
-        condition: service_healthy
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
-      - cv_backbone
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        echo "⏳ Waiting for Kafka..."
-        sleep 5
-        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
-          --topic cv.detections --partitions 3 --replication-factor 1 \
-          --config retention.ms=86400000
-        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
-          --topic cv.anomalies --partitions 3 --replication-factor 1 \
-          --config retention.ms=86400000
-        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
-          --topic cv.heartbeats --partitions 1 --replication-factor 1 \
-          --config retention.ms=3600000
-        echo "✅ Topics created:"
-        kafka-topics --bootstrap-server kafka:29092 --list
+      - store-net
 
-  # ──────────────────────────────────────────────
-  # LAYER 1 — CORE: FastAPI (API Shell)
-  # Routes:
-  #   GET  /health          → liveness + dependency checks
-  #   GET  /api/v1/analytics → aggregated detection KPIs
-  #   POST /api/v1/ingest   → manual frame/event push
-  #   WS   /ws/alerts       → live anomaly WebSocket
-  # ──────────────────────────────────────────────
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: cv_api
-    <<: *always-restart
-    logging: *default-logging
+    # Replace with your actual API image or build context
+    image: tiangolo/uvicorn-gunicorn-fastapi:python3.8
+    hostname: api
+    container_name: api
+    restart: unless-stopped
     depends_on:
-      kafka:
-        condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - cv_backbone
-    ports:
-      - "8000:8000"
-    environment:
-      # App
-      APP_ENV: development
-      LOG_LEVEL: debug
-      WORKERS: 1
-      # Kafka
-      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
-      KAFKA_CONSUMER_GROUP: "cv-api-consumers"
-      KAFKA_TOPIC_DETECTIONS: "cv.detections"
-      KAFKA_TOPIC_ANOMALIES: "cv.anomalies"
-      # Redis
-      REDIS_URL: "redis://redis:6379/0"
-      REDIS_PUBSUB_CHANNEL: "cv:alerts"
-      # Feature flags
-      YOLO_ENABLED: "false"           # flip to true when worker is ready
-      ANOMALY_DWELL_THRESHOLD_SEC: "30"
-      ANOMALY_CROWD_THRESHOLD: "10"
+      kafka:
+        condition: service_healthy
     volumes:
-      - ./api:/app                    # hot-reload in dev
-      - model_cache:/models
+      - ./api:/app  # Mount your API code
+    environment:
+      - PORT=8000
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     healthcheck:
-      <<: *healthcheck-defaults
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
 
-  # ──────────────────────────────────────────────
-  # LAYER 1 — CORE: YOLOv8 Detection Worker
-  # • Reads .mp4 from /videos (bind-mount your file)
-  # • Publishes DetectionEvent JSON to cv.detections
-  # • Publishes AnomalyEvent JSON to cv.anomalies
-  # ──────────────────────────────────────────────
   worker:
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
-    container_name: cv_worker
-    <<: *always-restart
-    logging: *default-logging
+    # Replace with your actual worker image (should include YOLOv8 and dependencies)
+    image: your-worker-image:latest
+    hostname: worker
+    container_name: worker
+    restart: unless-stopped
     depends_on:
-      kafka:
-        condition: service_healthy
       redis:
         condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-    networks:
-      - cv_backbone
+      kafka:
+        condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
-      KAFKA_TOPIC_DETECTIONS: "cv.detections"
-      KAFKA_TOPIC_ANOMALIES: "cv.anomalies"
-      KAFKA_TOPIC_HEARTBEATS: "cv.heartbeats"
-      REDIS_URL: "redis://redis:6379/0"
-      # YOLOv8
-      YOLO_MODEL: "yolov8n.pt"        # nano for speed; swap to yolov8m.pt for accuracy
-      YOLO_CONF_THRESHOLD: "0.4"
-      YOLO_CLASSES: "0"               # 0 = person (COCO)
-      VIDEO_SOURCE: "/videos/input.mp4"
-      VIDEO_LOOP: "true"              # loop for demo
-      # Anomaly rules
-      DWELL_THRESHOLD_SEC: "30"
-      CROWD_THRESHOLD_COUNT: "10"
-      FRAME_SKIP: "3"                 # process every Nth frame
-    volumes:
-      - ./worker:/app
-      - ./videos:/videos           # place your .mp4 here
-      - model_cache:/models
-      - detection_output:/output
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    # Worker writes a Redis key "worker.alive" every 30s to signal liveness
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "redis", "get", "worker.alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
 
-
-  # ──────────────────────────────────────────────
-  # LAYER 2 — OBSERVABILITY: React Dashboard
-  # Dev server with Vite HMR
-  # • Heatmap (canvas overlay on camera feed)
-  # • KPI cards: total detections, anomalies, FPS
-  # • Live WebSocket alert feed
-  # Open http://localhost:3000
-  # ──────────────────────────────────────────────
   dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
-    container_name: cv_dashboard
-    <<: *always-restart
-    logging: *default-logging
+    # Replace with your actual dashboard image or build context
+    image: node:18-alpine
+    hostname: dashboard
+    container_name: dashboard
+    restart: unless-stopped
     depends_on:
-      - api
-    networks:
-      - cv_backbone
-    ports:
-      - "3000:3000"
-    environment:
-      VITE_API_BASE_URL: "http://localhost:8000"
-      VITE_WS_URL: "ws://localhost:8000/ws/alerts"
+      api:
+        condition: service_healthy
+    working_dir: /app
     volumes:
       - ./dashboard:/app
-      - /app/node_modules            # preserve container node_modules
-
-  # ──────────────────────────────────────────────
-  # LAYER 2 — OBSERVABILITY: Prometheus
-  # Scrapes: api:8000/metrics (via prometheus-fastapi)
-  # ──────────────────────────────────────────────
-  prometheus:
-    image: prom/prometheus:v2.51.2
-    container_name: cv_prometheus
-    <<: *always-restart
-    logging: *default-logging
-    networks:
-      - cv_backbone
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.retention.time=7d"
-      - "--web.enable-lifecycle"
-
-  # ──────────────────────────────────────────────
-  # LAYER 2 — OBSERVABILITY: Grafana
-  # Pre-wired datasource: Prometheus
-  # Open http://localhost:3001  admin/admin
-  # ──────────────────────────────────────────────
-  grafana:
-    image: grafana/grafana:10.4.2
-    container_name: cv_grafana
-    <<: *always-restart
-    logging: *default-logging
-    depends_on:
-      - prometheus
-    networks:
-      - cv_backbone
-    ports:
-      - "3001:3000"
+    command: ["sh", "-c", "npm install && npm start"]
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/cv.json
+      - PORT=3000
+      - REACT_APP_API_URL=http://api:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    hostname: prometheus
+    container_name: prometheus
+    restart: unless-stopped
     volumes:
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    environment:
+      - PROMETHEUS_TSDB_PATH=/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
+
+  grafana:
+    image: grafana/grafana:latest
+    hostname: grafana
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
+
+networks:
+  store-net:
+    driver: bridge
+    # Internal network - services can communicate with each other
+    # Ports are still published to host if specified
+    internal: true
+
+volumes:
+  zookeeper_data:
+  zookeeper_log:
+  kafka_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

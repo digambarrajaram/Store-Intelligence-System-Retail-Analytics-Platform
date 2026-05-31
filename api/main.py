@@ -22,8 +22,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
+from api.routers import analytics, debug
+from api import websocket  # Our new WebSocket module
 
-# ── Config ─────────────────────────────────────────────────────────
+
+# ── Config ─────────────────────────────────────────────────────
 
 class Settings(BaseSettings):
     app_env: str = "development"
@@ -44,7 +47,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-# ── Models ─────────────────────────────────────────────────────────
+# ── Models ─────────────────────────────────────────────────────
 
 class DetectionEvent(BaseModel):
     frame_id: int
@@ -83,7 +86,7 @@ class AnalyticsResponse(BaseModel):
     heatmap_buckets: list[list[int]]   # 10×10 grid counts
 
 
-# ── App State ──────────────────────────────────────────────────────
+# ── App State ──────────────────────────────────────────────────
 
 class AppState:
     redis: aioredis.Redis | None = None
@@ -94,7 +97,7 @@ class AppState:
 state = AppState()
 
 
-# ── Lifespan ───────────────────────────────────────────────────────
+# ── Lifespan ───────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -106,17 +109,19 @@ async def lifespan(app: FastAPI):
     )
     await state.kafka_producer.start()
 
-    # Start background WebSocket fan-out from Redis Pub/Sub
-    asyncio.create_task(_redis_pubsub_fanout())
+    # Initialize WebSocket components (ConnectionManager, pubsub listener, ping task)
+    websocket.init_websocket(app)
 
     yield
 
     # shutdown
     await state.kafka_producer.stop()
+    # Cleanup WebSocket components
+    await websocket.cleanup_websocket(app)
     await state.redis.close()
 
 
-# ── FastAPI App ────────────────────────────────────────────────────
+# ── FastAPI App ────────────────────────────────────────────────
 
 app = FastAPI(
     title="CV Pipeline API",
@@ -132,10 +137,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Instrumentator().instrument(app).expose(app)  # /metrics for Prometheus
+Instrumentator().instrument(app).expose(app, endpoint="/prometheus-metrics")  # /prometheus-metrics for Prometheus
+
+# Include routers
+app.include_router(analytics.router)
+app.include_router(debug.router)
+app.include_router(websocket.router)      # API routes like /api/v1/test-alert
+app.include_router(websocket.ws_router)   # WebSocket route at /ws/alerts (no prefix)
 
 
-# ── Health ─────────────────────────────────────────────────────────
+# ── Health ─────────────────────────────────────────────────────
 
 @app.get("/health", response_model=HealthResponse, tags=["Ops"])
 async def health() -> HealthResponse:
@@ -171,7 +182,7 @@ async def health() -> HealthResponse:
     )
 
 
-# ── Analytics ──────────────────────────────────────────────────────
+# ── Analytics ────────────────────────────────────────────────────
 
 @app.get("/api/v1/analytics", response_model=AnalyticsResponse, tags=["Analytics"])
 async def analytics(window: int = 15) -> AnalyticsResponse:
@@ -217,42 +228,7 @@ async def analytics(window: int = 15) -> AnalyticsResponse:
     )
 
 
-# ── WebSocket — live anomaly feed ──────────────────────────────────
-
-@app.websocket("/ws/alerts")
-async def ws_alerts(websocket: WebSocket):
-    """
-    Streams AnomalyEvent JSON from Redis Pub/Sub to every connected client.
-    React dashboard subscribes here for the live alert feed.
-    """
-    await websocket.accept()
-    state.ws_clients.add(websocket)
-    try:
-        while True:
-            # keep-alive ping every 20 s
-            await asyncio.sleep(20)
-            await websocket.send_json({"type": "ping", "ts": time.time()})
-    except WebSocketDisconnect:
-        state.ws_clients.discard(websocket)
-
-
-async def _redis_pubsub_fanout():
-    """Background task: subscribe to Redis channel and broadcast to WS clients."""
-    pubsub = state.redis.pubsub()
-    await pubsub.subscribe(settings.redis_pubsub_channel)
-    async for message in pubsub.listen():
-        if message["type"] == "message":
-            payload = message["data"]
-            dead: set[WebSocket] = set()
-            for ws in state.ws_clients:
-                try:
-                    await ws.send_text(payload)
-                except Exception:
-                    dead.add(ws)
-            state.ws_clients -= dead
-
-
-# ── Manual ingest (testing / replay) ──────────────────────────────
+# ── Manual ingest (testing / replay) ────────────────────────────
 
 @app.post("/api/v1/ingest/detection", tags=["Ingest"])
 async def ingest_detection(event: DetectionEvent):
@@ -275,7 +251,7 @@ async def ingest_anomaly(event: AnomalyEvent):
     return {"queued": True, "topic": settings.kafka_topic_anomalies}
 
 
-# ── Entry point ────────────────────────────────────────────────────
+# ── Entry point ────────────────────────────────────────────────
 
 if __name__ == "__main__":
     uvicorn.run(
