@@ -97,8 +97,11 @@ services:
       - store-net
 
   worker:
-    # Replace with your actual worker image (should include YOLOv8 and dependencies)
-    image: your-worker-image:latest
+    # Build the worker image from the root Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: digya285/store-intelligence-worker:latest
     hostname: worker
     container_name: worker
     restart: unless-stopped
