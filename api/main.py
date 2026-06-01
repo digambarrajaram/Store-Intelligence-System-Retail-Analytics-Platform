@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 # 🟢 FIXED: Use relative imports to prevent ModuleNotFoundError inside the container
-from .websocket import init_websocket
-from .routers import analytics, insights, pos
+# 🟢 FIXED: Change from relative (.) to absolute imports
+from websocket import init_websocket
+from routers import analytics, insights, pos
+
 
 app = FastAPI(
     title="Store Intelligence System API",
