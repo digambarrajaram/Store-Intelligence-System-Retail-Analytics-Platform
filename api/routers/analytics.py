@@ -2,16 +2,19 @@ from fastapi import APIRouter, Depends, Query
 from redis import Redis
 import datetime
 import time
+import os
 from typing import Optional
 
 router = APIRouter()
 
 def get_redis():
-    """
-    Dependency to get Redis client.
-    In a real application, this would be configured via environment variables or app state.
-    """
-    return Redis(host='localhost', port=6379, db=0, decode_responses=True)
+    return Redis(
+        host=os.getenv('REDIS_HOST', 'localhost'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        db=0,
+        decode_responses=True
+    )
+
 
 @router.get("/metrics")
 async def get_metrics(

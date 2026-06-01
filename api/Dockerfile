@@ -14,7 +14,6 @@ COPY . .
 
 EXPOSE 8000
 
-# Production: no --reload, multiple workers, timeout set
 CMD ["uvicorn", "main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
