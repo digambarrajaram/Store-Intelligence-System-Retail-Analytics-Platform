@@ -1,6 +1,13 @@
 version: '3.8'
 
-# NOTE: Copy .env.example to .env and adjust values as needed.
+# Production docker-compose — pulls all images from Docker Hub.
+# No build required. Works on any machine.
+#
+# SETUP:
+#   cp .env.example .env
+#   mkdir -p videos && cp your_video.mp4 videos/input.mp4
+#   mkdir -p grafana/provisioning  # For Grafana provisioning
+#   docker compose up -d
 
 services:
   zookeeper:
@@ -36,7 +43,6 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # FIX: expose kafka on both internal (kafka:9092) and host (localhost:9093)
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
@@ -52,7 +58,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s  # kafka needs more time to start
+      start_period: 60s
     networks:
       - store-net
 
@@ -75,11 +81,7 @@ services:
       - store-net
 
   api:
-    # FIX: use build context instead of generic tiangolo image
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    image: store-intelligence-api:latest
+    image: digya285/store-intelligence-api:latest
     hostname: api
     container_name: api
     restart: unless-stopped
@@ -105,9 +107,6 @@ services:
       - store-net
 
   worker:
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
     image: digya285/store-intelligence-worker:latest
     hostname: worker
     container_name: worker
@@ -118,7 +117,8 @@ services:
       kafka:
         condition: service_healthy
     volumes:
-      - ./videos:/app/videos  # mount video files here
+      # Create this directory and add your video: mkdir -p videos && cp input.mp4 videos/
+      - ./videos:/app/videos
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -127,10 +127,10 @@ services:
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
+    ports:
+      - "8001:8001"  # Prometheus metrics port
     healthcheck:
-      # FIX: worker healthcheck needs redis-cli installed in the worker image,
-      # OR use a simpler file-based check
-      test: ["CMD-SHELL", "redis-cli -h redis -p 6379 get worker.alive | grep -q 1 || exit 1"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -139,9 +139,7 @@ services:
       - store-net
 
   dashboard:
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
+    image: digya285/store-intelligence-dashboard:latest
     hostname: dashboard
     container_name: dashboard
     restart: unless-stopped
@@ -152,10 +150,9 @@ services:
       - "3000:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:8000
-      # FIX: WebSocket must use host address, not internal docker hostname
       - REACT_APP_WS_URL=ws://localhost:8000
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -168,6 +165,9 @@ services:
     hostname: prometheus
     container_name: prometheus
     restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -199,10 +199,11 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
     ports:
-      - "3001:3000"  # FIX: avoid port clash with dashboard on 3000
+      - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
+    # NOTE: Create this directory and add provisioning files: mkdir -p grafana/provisioning
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
       interval: 30s
@@ -215,8 +216,6 @@ services:
 networks:
   store-net:
     driver: bridge
-    # FIX: removed internal: true — that blocks healthcheck curl calls to external
-    # and prevents host machine from reaching services via published ports
 
 volumes:
   zookeeper_data:

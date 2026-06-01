@@ -22,11 +22,12 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
-from api.routers import analytics, debug
+from api.routers import analytics, debug, insights, pos
 from api import websocket  # Our new WebSocket module
 
 
 # ── Config ─────────────────────────────────────────────────────
+
 
 class Settings(BaseSettings):
     app_env: str = "development"
@@ -48,6 +49,7 @@ settings = Settings()
 
 
 # ── Models ─────────────────────────────────────────────────────
+
 
 class DetectionEvent(BaseModel):
     frame_id: int
@@ -88,6 +90,7 @@ class AnalyticsResponse(BaseModel):
 
 # ── App State ──────────────────────────────────────────────────
 
+
 class AppState:
     redis: aioredis.Redis | None = None
     kafka_producer: AIOKafkaProducer | None = None
@@ -98,6 +101,7 @@ state = AppState()
 
 
 # ── Lifespan ───────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -123,6 +127,7 @@ async def lifespan(app: FastAPI):
 
 # ── FastAPI App ────────────────────────────────────────────────
 
+
 app = FastAPI(
     title="CV Pipeline API",
     description="FAANG-style computer vision analytics backend",
@@ -137,16 +142,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Instrumentator().instrument(app).expose(app, endpoint="/prometheus-metrics")  # /prometheus-metrics for Prometheus
+Instrumentator().instrument(app).expose(app)  # exposes /metrics endpoint
 
 # Include routers
 app.include_router(analytics.router)
 app.include_router(debug.router)
+app.include_router(insights.router)
+app.include_router(pos.router)
 app.include_router(websocket.router)      # API routes like /api/v1/test-alert
 app.include_router(websocket.ws_router)   # WebSocket route at /ws/alerts (no prefix)
 
 
 # ── Health ─────────────────────────────────────────────────────
+
 
 @app.get("/health", response_model=HealthResponse, tags=["Ops"])
 async def health() -> HealthResponse:
@@ -230,6 +238,7 @@ async def analytics(window: int = 15) -> AnalyticsResponse:
 
 # ── Manual ingest (testing / replay) ────────────────────────────
 
+
 @app.post("/api/v1/ingest/detection", tags=["Ingest"])
 async def ingest_detection(event: DetectionEvent):
     """Push a DetectionEvent directly to Kafka (useful for testing)."""
@@ -252,6 +261,7 @@ async def ingest_anomaly(event: AnomalyEvent):
 
 
 # ── Entry point ────────────────────────────────────────────────
+
 
 if __name__ == "__main__":
     uvicorn.run(
