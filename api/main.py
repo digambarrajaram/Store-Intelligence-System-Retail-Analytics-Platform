@@ -6,10 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-# Import your setup functions securely
-from websocket import init_websocket
-# Import your routers (adjust names based on your router files)
-from routers import analytics, insights, pos
+# 🟢 FIXED: Use relative imports to prevent ModuleNotFoundError inside the container
+from .websocket import init_websocket
+from .routers import analytics, insights, pos
 
 app = FastAPI(
     title="Store Intelligence System API",
@@ -48,16 +47,16 @@ async def health_check():
         "version": "0.1.0"
     }
 
-# 5. Lifespan Startup Mechanics (Fixed: No unawaited NoneType execution)
+# 5. Lifespan Startup Mechanics
 @app.on_event("startup")
 async def startup_event():
     print("Initializing background data streaming interfaces...")
     
-    # 1. Fetch environment parameters securely
+    # Fetch environment parameters securely
     redis_host = os.getenv("REDIS_HOST", "redis")
     redis_port = int(os.getenv("REDIS_PORT", 6379))
     
-    # 2. Establish and bind the connection pool to app.state
+    # Establish and bind the connection pool to app.state
     print(f"Connecting to Redis cluster at {redis_host}:{redis_port}...")
     app.state.redis = aioredis.from_url(
         f"redis://{redis_host}:{redis_port}", 
@@ -65,8 +64,8 @@ async def startup_event():
         decode_responses=True
     )
     
-    # 3. Initialize your websocket layout safely now that state.redis exists
-    await init_websocket(app)
+    # 🟢 FIXED: Removed "await" because init_websocket is a regular synchronous function
+    init_websocket(app)
     print("Application startup sequence finalized.")
 
 @app.on_event("shutdown")
