@@ -227,7 +227,7 @@ def init_websocket(app):
     app.state.pubsub_task = asyncio.create_task(pubsub_listener(manager.redis))
     app.state.ping_task = asyncio.create_task(manager.start_ping_task())
 
-def cleanup_websocket(app):
+async def cleanup_websocket(app):
     """Cleanup WebSocket components - call from main.py lifespan"""
     # Cancel background tasks
     if hasattr(app.state, 'pubsub_task'):
