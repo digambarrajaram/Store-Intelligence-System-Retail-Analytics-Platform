@@ -2,7 +2,7 @@ import json
 import asyncio
 from datetime import datetime
 from typing import Set
-import aioredis
+from redis import asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.websockets import WebSocketState
 
