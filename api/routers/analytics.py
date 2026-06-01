@@ -116,4 +116,3 @@ async def get_funnel(
         "converted": converted_count,
         "conversion_rate_pct": round(conversion_rate_pct, 2)
     }
-}

@@ -3,20 +3,24 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Copy package.json only (no package-lock.json required)
 COPY package.json ./
 
-# Install all dependencies including devDependencies (tailwind, postcss, etc.)
-# --legacy-peer-deps handles any peer dependency conflicts
+# Install all project dependencies
 RUN npm install --include=dev --legacy-peer-deps
 
-# Explicitly install tailwind and postcss in case they're missing from package.json
-RUN npm install tailwindcss autoprefixer postcss --save-dev --legacy-peer-deps
+# Tailwind v4 uses @tailwindcss/postcss, NOT tailwindcss directly as postcss plugin
+# Install correct packages for Tailwind v4
+RUN npm install @tailwindcss/postcss tailwindcss autoprefixer postcss --save-dev --legacy-peer-deps
+
+# Overwrite postcss.config.js to use correct v4 plugin
+RUN echo '{"plugins": {"@tailwindcss/postcss": {}}}' > postcss.config.json && \
+    rm -f postcss.config.js postcss.config.cjs postcss.config.mjs
 
 COPY . .
 
-# Build — Vite outputs to /app/dist, CRA outputs to /app/build
-# This handles both cases
+# postcss.config.json overrides any copied postcss.config.js from COPY . .
+RUN rm -f postcss.config.js postcss.config.cjs postcss.config.mjs
+
 RUN npm run build && \
     if [ -d "dist" ]; then cp -r dist /app/output; \
     elif [ -d "build" ]; then cp -r build /app/output; \
@@ -25,13 +29,9 @@ RUN npm run build && \
 # Stage 2 — serve with nginx
 FROM nginx:alpine
 
-# Install curl for healthcheck
 RUN apk add --no-cache curl
 
-# Copy built files from builder stage
 COPY --from=builder /app/output /usr/share/nginx/html
-
-# Copy nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 3000
