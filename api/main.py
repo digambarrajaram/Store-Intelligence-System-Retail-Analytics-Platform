@@ -1,6 +1,7 @@
 import os
-import asyncio
 import time
+import asyncio
+from redis import asyncio as aioredis  # Native Redis asyncio module
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -51,6 +52,25 @@ async def health_check():
 @app.on_event("startup")
 async def startup_event():
     print("Initializing background data streaming interfaces...")
-    # Calls your web socket connection loops natively
+    
+    # 1. Fetch environment parameters securely
+    redis_host = os.getenv("REDIS_HOST", "redis")
+    redis_port = int(os.getenv("REDIS_PORT", 6379))
+    
+    # 2. Establish and bind the connection pool to app.state
+    print(f"Connecting to Redis cluster at {redis_host}:{redis_port}...")
+    app.state.redis = aioredis.from_url(
+        f"redis://{redis_host}:{redis_port}", 
+        encoding="utf-8", 
+        decode_responses=True
+    )
+    
+    # 3. Initialize your websocket layout safely now that state.redis exists
     await init_websocket(app)
     print("Application startup sequence finalized.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("Closing backend persistent state infrastructure...")
+    if hasattr(app.state, "redis"):
+        await app.state.redis.close()
