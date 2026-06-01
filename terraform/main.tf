@@ -105,6 +105,14 @@ resource "aws_vpc_security_group_ingress_rule" "port9090" {
   from_port = 9090 
   to_port = 9090 
 }
+resource "aws_vpc_security_group_ingress_rule" "port6379" {
+  security_group_id = aws_security_group.store_sg.id
+  cidr_ipv4 = var.Store_ai_internet_route
+  ip_protocol = "tcp"
+  from_port = 6379 
+  to_port = 6379 
+}
+
 resource "aws_vpc_security_group_ingress_rule" "http" {
   security_group_id = aws_security_group.store_sg.id
   cidr_ipv4 = var.Store_ai_internet_route
@@ -120,6 +128,16 @@ resource "aws_vpc_security_group_ingress_rule" "port8001" {
   to_port = 8001
 }
  
+resource "aws_vpc_security_group_ingress_rule" "port9093" {
+  security_group_id = aws_security_group.store_sg.id
+  cidr_ipv4 = var.Store_ai_internet_route
+  ip_protocol = "tcp"
+  from_port = 9093
+  to_port = 9093
+}
+
+
+
 resource "aws_vpc_security_group_egress_rule" "allow_all_outbound" {
   security_group_id = aws_security_group.store_sg.id
   cidr_ipv4         = var.Store_ai_internet_route

@@ -128,7 +128,7 @@ services:
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
     ports:
-      - "8001:8001"  # Prometheus metrics port
+      - " :8001"  # Prometheus metrics port
     healthcheck:
       test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
