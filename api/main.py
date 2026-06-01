@@ -40,7 +40,7 @@ async def startup_event():
     app.state.redis = redis_client
     
     # Initialize WebSocket components
-    await init_websocket(app)
+    init_websocket(app)
     
     # Start Prometheus instrumentation
     Instrumentator().instrument(app).expose(app)
