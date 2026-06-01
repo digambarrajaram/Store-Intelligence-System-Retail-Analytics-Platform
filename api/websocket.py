@@ -6,7 +6,7 @@ from redis import asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.websockets import WebSocketState
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter()
 ws_router = APIRouter()  # Separate router for WebSocket without prefix
 
 class ConnectionManager:
