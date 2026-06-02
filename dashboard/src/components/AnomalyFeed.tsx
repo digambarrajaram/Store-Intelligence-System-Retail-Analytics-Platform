@@ -1,9 +1,11 @@
+import React from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { Alert } from '../types/api';
 import { useEffect, useRef, useState } from 'react';
 
-export const AnomalyFeed: React.FC = () => {
-  const { data: alertData, error, isConnected } = useWebSocket<Alert>('ws://localhost:8000/ws/alerts');
+export const AnomalyFeed = () => {
+  const wsUrl = import.meta.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+  const { data: alertData, error, isConnected } = useWebSocket<Alert>(`${wsUrl}/ws/alerts`);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 

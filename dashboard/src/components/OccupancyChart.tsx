@@ -1,16 +1,18 @@
+import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Line } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { OccupancyData } from '../types/api';
 
 const fetchOccupancyData = async (): Promise<OccupancyData[]> => {
-  const response = await fetch('/api/v1/metrics?window_minutes=60');
+  const apiUrl = import.meta.env.REACT_APP_API_URL ? import.meta.env.REACT_APP_API_URL.trim() : '/api/v1';
+  const response = await fetch(`${apiUrl}/metrics?window_minutes=60`);
   if (!response.ok) {
     throw new Error('Failed to fetch occupancy data');
   }
   return response.json();
 };
 
-export const OccupancyChart: React.FC = () => {
+export const OccupancyChart = () => {
   const { data, error, isLoading } = usePolling<OccupancyData[]>(fetchOccupancyData, 30000, {
     immediate: true,
   });

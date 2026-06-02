@@ -1,3 +1,4 @@
+import React from 'react';
 import { KPICards } from './components/KPICards';
 import { OccupancyChart } from './components/OccupancyChart';
 import { AnomalyFeed } from './components/AnomalyFeed';
@@ -5,7 +6,7 @@ import { FunnelChart } from './components/FunnelChart';
 import { SalespersonLeaderboard } from './components/SalespersonLeaderboard';
 import ErrorBoundary from './components/ErrorBoundary';
 
-const App: React.FC = () => {
+const App = () => {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
       <h1 className="text-2xl font-bold mb-6">Store Intelligence Dashboard</h1>

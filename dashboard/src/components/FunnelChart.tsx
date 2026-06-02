@@ -1,16 +1,18 @@
+import React from 'react';
 import { FunnelChart, Funnel, Tooltip, ResponsiveContainer, Label } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { FunnelData } from '../types/api';
 
 const fetchFunnelData = async (): Promise<FunnelData[]> => {
-  const response = await fetch('/api/v1/funnel');
+  const apiUrl = import.meta.env.REACT_APP_API_URL ? import.meta.env.REACT_APP_API_URL.trim() : '/api/v1';
+  const response = await fetch(`${apiUrl}/funnel`);
   if (!response.ok) {
     throw new Error('Failed to fetch funnel data');
   }
   return response.json();
 };
 
-export const FunnelChart: React.FC = () => {
+export const FunnelChart = () => {
   const { data, error, isLoading } = usePolling<FunnelData[]>(fetchFunnelData, 30000, {
     immediate: true,
   });

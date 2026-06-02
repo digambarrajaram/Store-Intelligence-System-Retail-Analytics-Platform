@@ -166,3 +166,65 @@ async def get_funnel(
             2
         )
     }
+
+
+@router.get("/kpis")
+async def get_kpis(
+    window_minutes: int = Query(60, ge=1, le=1440),
+    redis: Redis = Depends(get_redis)
+):
+    now = time.time()
+    start = now - (window_minutes * 60)
+    
+    # Get entries and exits for the time window
+    total_entries = redis.zcount("entries", start, now)
+    total_exits = redis.zcount("exits", start, now)
+    current_occupancy = max(0, total_entries - total_exits)
+    
+    # Calculate occupancy trend (compare first half vs second half of window)
+    mid_point = start + (window_minutes * 60) / 2
+    entries_first_half = redis.zcount("entries", start, mid_point)
+    exits_first_half = redis.zcount("exits", start, mid_point)
+    occupancy_first_half = max(0, entries_first_half - exits_first_half)
+    
+    entries_second_half = redis.zcount("entries", mid_point, now)
+    exits_second_half = redis.zcount("exits", mid_point, now)
+    occupancy_second_half = max(0, entries_second_half - exits_second_half)
+    
+    if occupancy_second_half > occupancy_first_half:
+        occupancy_trend = 'up'
+    elif occupancy_second_half < occupancy_first_half:
+        occupancy_trend = 'down'
+    else:
+        occupancy_trend = 'stable'
+    
+    # Get sparkline data (last 30 minutes, or available window if less)
+    sparkline_window = min(30, window_minutes)
+    sparkline_start = now - (sparkline_window * 60)
+    
+    # Get entry counts per minute for the sparkline
+    entriesTodaySparkline = []
+    for i in range(sparkline_window):
+        point_start = sparkline_start + (i * 60)
+        point_end = point_start + 60
+        count = redis.zcount("entries", point_start, point_end)
+        entriesTodaySparkline.append(count)
+    
+    # Get conversion rate from funnel data
+    entered_store = redis.smembers("funnel:entered_store")
+    converted = redis.smembers("funnel:converted")
+    entered_store_count = len(entered_store)
+    converted_count = len(converted)
+    conversion_rate = (converted_count / entered_store_count * 100) if entered_store_count > 0 else 0
+    
+    # Get active anomalies count (assuming we store this in Redis)
+    active_anomalies = int(redis.get("active_anomalies") or 0)
+    
+    return {
+        "currentOccupancy": current_occupancy,
+        "occupancyTrend": occupancy_trend,
+        "totalEntriesToday": total_entries,  # Using window as proxy for today
+        "entriesTodaySparkline": entriesTodaySparkline,
+        "conversionRate": round(conversion_rate, 2),
+        "activeAnomalies": active_anomalies
+    }

@@ -58,7 +58,7 @@ resource "aws_security_group" "store_sg" {
 
 # Web, API, and Application Ports (Kept open to your internet route variable)
 locals {
-  public_ports = [22, 80, 443, 3000, 3001, 8000, 8001]
+  public_ports = [22, 80, 443, 3000, 3001, 8000, 8001, 9090]
 }
 
 resource "aws_vpc_security_group_ingress_rule" "public_ingress" {

@@ -1,15 +1,17 @@
+import React from 'react';
 import { usePolling } from '../hooks/usePolling';
 import { KPIData } from '../types/api';
 
 const fetchKPIData = async (): Promise<KPIData> => {
-  const response = await fetch('/api/v1/kpis');
+  const apiUrl = import.meta.env.REACT_APP_API_URL ? import.meta.env.REACT_APP_API_URL.trim() : '/api/v1';
+  const response = await fetch(`${apiUrl}/kpis`);
   if (!response.ok) {
     throw new Error('Failed to fetch KPI data');
   }
   return response.json();
 };
 
-export const KPICards: React.FC = () => {
+export const KPICards = () => {
   const { data, error, isLoading } = usePolling<KPIData>(fetchKPIData, 30000, {
     immediate: true,
   });

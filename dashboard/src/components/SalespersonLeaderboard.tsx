@@ -1,22 +1,33 @@
+import React from 'react';
 import { usePolling } from '../hooks/usePolling';
 import { SalespersonData } from '../types/api';
 
 const fetchSalespersonData = async (): Promise<SalespersonData[]> => {
-  const response = await fetch('/api/v1/insights/salesperson');
+  // Get today's date in YYYY-MM-DD format
+  const today = new Date().toISOString().split('T')[0];
+  const apiUrl = import.meta.env.REACT_APP_API_URL ? import.meta.env.REACT_APP_API_URL.trim() : '/api/v1';
+  const response = await fetch(`${apiUrl}/insights/salesperson?date=${today}`);
   if (!response.ok) {
     throw new Error('Failed to fetch salesperson data');
   }
-  return response.json();
+  const data = await response.json();
+  // Map API response to match SalespersonData interface
+  return data.map((person: any, index: number) => ({
+    id: person.salesperson_name || `person_${index}`, // Use name as ID or generate fallback
+    name: person.salesperson_name,
+    gmv: person.total_gmv,
+    transactions: person.order_count
+  }));
 };
 
-export const SalespersonLeaderboard: React.FC = () => {
+export const SalespersonLeaderboard = () => {
   const { data, error, isLoading } = usePolling<SalespersonData[]>(fetchSalespersonData, 30000, {
     immediate: true,
   });
 
   const [sortConfig, setSortConfig] = React.useState<{ key: keyof SalespersonData; direction: 'asc' | 'desc' } | null>(null);
 
-  const sortedData = React.useMemo(() => {
+    const sortedData = React.useMemo(() => {
     if (!sortConfig || !data) return data;
     return [...data].sort((a, b) => {
       if (sortConfig.key === 'gmv') {
@@ -29,7 +40,15 @@ export const SalespersonLeaderboard: React.FC = () => {
           ? a.transactions - b.transactions
           : b.transactions - a.transactions;
       }
-      return 0;
+      if (sortConfig.key === 'name') {
+        return sortConfig.direction === 'asc'
+          ? a.name.localeCompare(b.name)
+          : b.name.localeCompare(a.name);
+      }
+      // For 'id' or any other key, fallback to name sorting for consistency
+      return sortConfig.direction === 'asc'
+        ? a.name.localeCompare(b.name)
+        : b.name.localeCompare(a.name);
     });
   }, [data, sortConfig]);
 
