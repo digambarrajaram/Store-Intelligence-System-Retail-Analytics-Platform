@@ -128,7 +128,3 @@ export const OccupancyChart = () => {
   );
 };
 
-    </div>
-  );
-};
-
