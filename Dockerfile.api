@@ -18,10 +18,12 @@ WORKDIR /app
 
 # Copy the api requirements and install Python dependencies
 COPY api/requirements.txt .
-RUN pip install --no-cache-dir -r api/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the api package and the main.py
+# Copy the api package, services, events, and main.py
 COPY api/ ./api/
+COPY services/ ./services/
+COPY events/ ./events/
 COPY main.py .
 
 # Expose the port
