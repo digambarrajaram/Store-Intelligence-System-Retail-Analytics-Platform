@@ -36,8 +36,11 @@ FROM nginx:alpine
 
 RUN apk add --no-cache curl
 
+ENV API_HOST=api
+ENV API_PORT=8000
+
 COPY --from=builder /app/output /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 EXPOSE 3000
 
