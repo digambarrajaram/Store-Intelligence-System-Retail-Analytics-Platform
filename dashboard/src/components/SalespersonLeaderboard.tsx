@@ -25,9 +25,15 @@ export const SalespersonLeaderboard = () => {
     immediate: true,
   });
 
+  React.useEffect(() => {
+    if (data) {
+      console.log('[SalespersonLeaderboard] Data loaded:', { count: data.length, data });
+    }
+  }, [data]);
+
   const [sortConfig, setSortConfig] = React.useState<{ key: keyof SalespersonData; direction: 'asc' | 'desc' } | null>(null);
 
-    const sortedData = React.useMemo(() => {
+  const sortedData = React.useMemo(() => {
     if (!sortConfig || !data) return data;
     return [...data].sort((a, b) => {
       if (sortConfig.key === 'gmv') {
@@ -45,7 +51,6 @@ export const SalespersonLeaderboard = () => {
           ? a.name.localeCompare(b.name)
           : b.name.localeCompare(a.name);
       }
-      // For 'id' or any other key, fallback to name sorting for consistency
       return sortConfig.direction === 'asc'
         ? a.name.localeCompare(b.name)
         : b.name.localeCompare(a.name);
@@ -62,79 +67,97 @@ export const SalespersonLeaderboard = () => {
 
   if (isLoading) {
     return (
-      <div className="h-96 w-full bg-gray-700 bg-opacity-50 rounded-lg p-4 animate-pulse">
-        <div className="h-full flex items-center justify-center text-gray-400">Loading leaderboard...</div>
+      <div className="w-full h-full flex items-center justify-center bg-slate-800/50 rounded">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-cyan-400 border-t-transparent mb-3"></div>
+          <p className="text-slate-400">Loading leaderboard...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="h-96 w-full bg-red-500 bg-opacity-20 rounded-lg p-4">
-        <div className="h-full flex items-center justify-center text-red-400">
-          Error: {error}
+      <div className="w-full h-full flex items-center justify-center bg-red-500/10 rounded">
+        <div className="text-center">
+          <p className="text-red-400 font-semibold">Error loading data</p>
+          <p className="text-red-300 text-sm mt-1">{error}</p>
         </div>
       </div>
     );
   }
 
-  if (!data || data.length === 0) {
+  if (!sortedData || sortedData.length === 0) {
     return (
-      <div className="h-96 w-full bg-gray-800 bg-opacity-50 rounded-lg p-4">
-        <div className="h-full flex items-center justify-center text-gray-400">
-          No data available
-        </div>
+      <div className="w-full h-full flex items-center justify-center bg-slate-800/30 rounded">
+        <p className="text-slate-400">No salesperson data available</p>
       </div>
     );
   }
 
   return (
-    <div className="h-96 w-full bg-gray-800 bg-opacity-50 rounded-lg p-4 overflow-y-auto">
-      <table className="min-w-full divide-y divide-gray-700">
-        <thead className="bg-gray-900">
-          <tr>
-            <th
-              className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => requestSort('name')}
-            >
-              Name
-            </th>
-            <th
-              className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => requestSort('gmv')}
-            >
-              GMV
-              {sortConfig?.key === 'gmv' ? (
-                sortConfig.direction === 'asc' ? ' ↑' : ' ↓'
-              ) : ''}
-            </th>
-            <th
-              className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer"
-              onClick={() => requestSort('transactions')}
-            >
-              Transactions
-              {sortConfig?.key === 'transactions' ? (
-                sortConfig.direction === 'asc' ? ' ↑' : ' ↓'
-              ) : ''}
-            </th>
-          </tr>
-        </thead>
-        <tbody className="bg-gray-800 divide-y divide-gray-700">
-          {sortedData.map((person) => (
-            <tr key={person.id} className="hover:bg-gray-700">
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                {person.name}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                ${person.gmv.toLocaleString()}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                {person.transactions}
-              </td>
+    <div className="w-full h-full flex flex-col bg-slate-800/20 rounded overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        <table className="w-full divide-y divide-slate-700">
+          <thead className="sticky top-0 bg-slate-950/60 backdrop-blur-sm">
+            <tr>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => requestSort('name')}
+                  className="text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300 transition-colors flex items-center gap-1"
+                >
+                  Salesperson
+                  {sortConfig?.key === 'name' && (
+                    <span className="text-cyan-400">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </button>
+              </th>
+              <th className="px-4 py-3 text-right">
+                <button
+                  onClick={() => requestSort('gmv')}
+                  className="text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300 transition-colors flex items-center justify-end gap-1 w-full"
+                >
+                  GMV
+                  {sortConfig?.key === 'gmv' && (
+                    <span className="text-cyan-400">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </button>
+              </th>
+              <th className="px-4 py-3 text-right">
+                <button
+                  onClick={() => requestSort('transactions')}
+                  className="text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300 transition-colors flex items-center justify-end gap-1 w-full"
+                >
+                  Orders
+                  {sortConfig?.key === 'transactions' && (
+                    <span className="text-cyan-400">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </button>
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-700/50">
+            {sortedData.map((person, rank) => (
+              <tr key={person.id} className="hover:bg-slate-700/20 transition-colors">
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                      {rank + 1}
+                    </div>
+                    <span className="text-sm font-medium text-white">{person.name}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap text-right">
+                  <span className="text-sm font-semibold text-cyan-300">${person.gmv.toLocaleString()}</span>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap text-right">
+                  <span className="text-sm text-slate-300">{person.transactions}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

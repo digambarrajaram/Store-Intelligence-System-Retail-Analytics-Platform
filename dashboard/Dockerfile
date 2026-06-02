@@ -10,26 +10,16 @@ WORKDIR /app
 
 COPY package.json ./
 
-# Install all project dependencies
+# Install all project dependencies (including dev deps for build)
 RUN npm install --include=dev --legacy-peer-deps
-
-# Tailwind v4 uses @tailwindcss/postcss, NOT tailwindcss directly as postcss plugin
-# Install correct packages for Tailwind v4
-RUN npm install @tailwindcss/postcss tailwindcss autoprefixer postcss --save-dev --legacy-peer-deps
-
-# Overwrite postcss.config.js to use correct v4 plugin
-RUN echo '{"plugins": {"@tailwindcss/postcss": {}}}' > postcss.config.json && \
-    rm -f postcss.config.js postcss.config.cjs postcss.config.mjs
 
 COPY . .
 
-# postcss.config.json overrides any copied postcss.config.js from COPY . .
-RUN rm -f postcss.config.js postcss.config.cjs postcss.config.mjs
-
+# Build the React app with Vite (includes Tailwind CSS generation via PostCSS)
 RUN npm run build && \
     if [ -d "dist" ]; then cp -r dist /app/output; \
     elif [ -d "build" ]; then cp -r build /app/output; \
-    else echo "ERROR: No build output found" && exit 1; fi
+    else echo "ERROR: No build output found. Available files:"; ls -la; exit 1; fi
 
 # Stage 2 — serve with nginx
 FROM nginx:alpine

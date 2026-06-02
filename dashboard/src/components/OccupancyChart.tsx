@@ -1,5 +1,5 @@
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Line } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { OccupancyData } from '../types/api';
 
@@ -10,6 +10,12 @@ const fetchOccupancyData = async (): Promise<OccupancyData[]> => {
     throw new Error('Failed to fetch occupancy data');
   }
   const payload = await response.json();
+  console.log('[OccupancyChart] API Response:', {
+    status: response.status,
+    payload,
+    historyCount: (payload.history || []).length,
+    sampleData: (payload.history || [])[0]
+  });
   return payload.history || [];
 };
 
@@ -18,19 +24,36 @@ export const OccupancyChart = () => {
     immediate: true,
   });
 
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (data && data.length > 0) {
+      console.log('[OccupancyChart] Data loaded successfully:', {
+        count: data.length,
+        firstItem: data[0],
+        lastItem: data[data.length - 1],
+        containerHeight: containerRef.current?.offsetHeight,
+      });
+    }
+  }, [data]);
+
   if (isLoading) {
     return (
-      <div className="h-96 w-full bg-gray-700 bg-opacity-50 rounded-lg p-4 animate-pulse">
-        <div className="h-full flex items-center justify-center text-gray-400">Loading occupancy chart...</div>
+      <div className="w-full h-full flex items-center justify-center bg-slate-800/50 rounded">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-cyan-400 border-t-transparent mb-3"></div>
+          <p className="text-slate-400">Loading occupancy chart...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="h-96 w-full bg-red-500 bg-opacity-20 rounded-lg p-4">
-        <div className="h-full flex items-center justify-center text-red-400">
-          Error: {error}
+      <div className="w-full h-full flex items-center justify-center bg-red-500/10 rounded">
+        <div className="text-center">
+          <p className="text-red-400 font-semibold">Error loading chart</p>
+          <p className="text-red-300 text-sm mt-1">{error}</p>
         </div>
       </div>
     );
@@ -38,34 +61,74 @@ export const OccupancyChart = () => {
 
   if (!data || data.length === 0) {
     return (
-      <div className="h-96 w-full bg-gray-800 bg-opacity-50 rounded-lg p-4">
-        <div className="h-full flex items-center justify-center text-gray-400">
-          No data available
-        </div>
+      <div className="w-full h-full flex items-center justify-center bg-slate-800/30 rounded">
+        <p className="text-slate-400">No occupancy data available</p>
       </div>
     );
   }
 
-  // Calculate peak for the peak line
+  // Calculate peak for reference line
   const peak = Math.max(...data.map((d) => d.count));
   const dataWithPeak = data.map((d) => ({ ...d, peak }));
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={dataWithPeak}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="timestamp" tickFormatter={(timestamp) => {
-          const date = new Date(timestamp);
-          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }} />
-        <YAxis />
-        <Tooltip />
-        <Area type="monotone" dataKey="count" stroke="#8884d8" fillOpacity={0.1} />
-        <Line type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} />
-        {/* Peak line */}
-        <Line type="monotone" dataKey="peak" stroke="#ff0000" strokeWidth={1} strokeDasharray="4 4" />
-      </AreaChart>
-    </ResponsiveContainer>
+    <div ref={containerRef} className="w-full h-full flex flex-col">
+      <ResponsiveContainer width="100%" height="100%" debounce={100}>
+        <AreaChart 
+          data={dataWithPeak} 
+          margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+          syncId="store-metrics"
+        >
+          <defs>
+            <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8} />
+              <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#475569" vertical={false} />
+          <XAxis 
+            dataKey="timestamp" 
+            stroke="#94a3b8" 
+            style={{ fontSize: '12px' }}
+            tickFormatter={(timestamp) => {
+              try {
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              } catch {
+                return timestamp;
+              }
+            }} 
+          />
+          <YAxis 
+            stroke="#94a3b8" 
+            style={{ fontSize: '12px' }}
+            domain={[0, peak * 1.1]}
+          />
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: '#0f172a', 
+              border: '1px solid #475569', 
+              borderRadius: '6px',
+              color: '#f1f5f9'
+            }} 
+            labelStyle={{ color: '#f1f5f9' }}
+            formatter={(value) => [`${value} customers`, 'Occupancy']}
+          />
+          <Area 
+            type="monotone" 
+            dataKey="count" 
+            stroke="#06b6d4" 
+            fill="url(#colorCount)" 
+            isAnimationActive={false}
+            name="Store Occupancy"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+    </div>
   );
 };
 

@@ -10,15 +10,18 @@ const App = () => {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="relative overflow-hidden">
+        {/* Background gradients */}
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.16),_transparent_30%)]" />
+        
         <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          {/* Header */}
           <header className="mb-8 rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-xl">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.24em] text-cyan-300/80">Store Intelligence</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Store Intelligence Dashboard</h1>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Dashboard</h1>
                 <p className="mt-3 max-w-2xl text-sm text-slate-400 sm:text-base">
-                  Real-time footfall, sales conversion, and alert insights for your store operations.
+                  Real-time footfall, conversion metrics, and anomaly alerts powered by computer vision and sensor fusion.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:w-auto">
@@ -35,62 +38,69 @@ const App = () => {
           </header>
 
           <div className="grid gap-6">
+            {/* KPI Cards Section */}
             <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">Key Metrics</h2>
-                  <p className="mt-1 text-sm text-slate-400">A quick view of occupancy, conversion, and anomaly status.</p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <span className="rounded-full bg-slate-800 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">High confidence</span>
-                  <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-200">Real-time</span>
-                </div>
+              <div className="mb-6">
+                <h2 className="text-xl font-semibold text-white">Key Performance Indicators</h2>
+                <p className="mt-1 text-sm text-slate-400">Real-time metrics at a glance</p>
               </div>
-              <div className="mt-6">
-                <ErrorBoundary fallback={<div className="p-4 text-red-400 text-center">Failed to load KPI Cards</div>}>
-                  <KPICards />
-                </ErrorBoundary>
-              </div>
+              <ErrorBoundary fallback={<div className="p-4 text-red-400 text-center">Failed to load KPI Cards</div>}>
+                <KPICards />
+              </ErrorBoundary>
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl">
-                <h2 className="text-xl font-semibold text-white">Occupancy Trends</h2>
-                <p className="mt-1 text-sm text-slate-400">Last 60 minutes of customer entries and peak flow.</p>
-                <div className="mt-6 min-h-[420px]">
-                  <ErrorBoundary fallback={<div className="p-4 text-red-400 text-center">Failed to load Occupancy Chart</div>}>
+            {/* Charts Grid: Occupancy + Alerts */}
+            <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+              {/* Occupancy Chart */}
+              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl flex flex-col">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold text-white">Occupancy Trends</h2>
+                  <p className="mt-1 text-sm text-slate-400">Last 60 minutes of store traffic</p>
+                </div>
+                <div className="flex-1 min-h-[420px] w-full">
+                  <ErrorBoundary fallback={<div className="h-full p-4 text-red-400 text-center flex items-center justify-center">Failed to load Occupancy Chart</div>}>
                     <OccupancyChart />
                   </ErrorBoundary>
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl">
-                <h2 className="text-xl font-semibold text-white">Active Alerts</h2>
-                <p className="mt-1 text-sm text-slate-400">Live anomaly events streamed from the store sensors.</p>
-                <div className="mt-6 min-h-[420px]">
-                  <ErrorBoundary fallback={<div className="p-4 text-red-400 text-center">Failed to load Anomaly Feed</div>}>
+              {/* Active Alerts / Anomaly Feed */}
+              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl flex flex-col">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold text-white">Live Alerts</h2>
+                  <p className="mt-1 text-sm text-slate-400">Real-time anomaly events</p>
+                </div>
+                <div className="flex-1 min-h-[420px] w-full">
+                  <ErrorBoundary fallback={<div className="h-full p-4 text-red-400 text-center flex items-center justify-center">Failed to load Anomaly Feed</div>}>
                     <AnomalyFeed />
                   </ErrorBoundary>
                 </div>
               </section>
             </div>
 
+            {/* Charts Grid: Funnel + Leaderboard */}
             <div className="grid gap-6 lg:grid-cols-2">
-              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl">
-                <h2 className="text-xl font-semibold text-white">Conversion Funnel</h2>
-                <p className="mt-1 text-sm text-slate-400">Track how visitors move through the purchase funnel.</p>
-                <div className="mt-6 min-h-[340px]">
-                  <ErrorBoundary fallback={<div className="p-4 text-red-400 text-center">Failed to load Funnel Chart</div>}>
+              {/* Conversion Funnel */}
+              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl flex flex-col">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold text-white">Conversion Funnel</h2>
+                  <p className="mt-1 text-sm text-slate-400">Customer journey through purchase stages</p>
+                </div>
+                <div className="flex-1 min-h-[340px] w-full">
+                  <ErrorBoundary fallback={<div className="h-full p-4 text-red-400 text-center flex items-center justify-center">Failed to load Funnel Chart</div>}>
                     <FunnelChart />
                   </ErrorBoundary>
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl">
-                <h2 className="text-xl font-semibold text-white">Salesperson Leaderboard</h2>
-                <p className="mt-1 text-sm text-slate-400">See the top performers driving the highest sales.</p>
-                <div className="mt-6 min-h-[340px]">
-                  <ErrorBoundary fallback={<div className="p-4 text-red-400 text-center">Failed to load Salesperson Leaderboard</div>}>
+              {/* Salesperson Leaderboard */}
+              <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur-xl flex flex-col">
+                <div className="mb-6">
+                  <h2 className="text-xl font-semibold text-white">Top Performers</h2>
+                  <p className="mt-1 text-sm text-slate-400">Daily leaderboard by GMV</p>
+                </div>
+                <div className="flex-1 min-h-[340px] w-full">
+                  <ErrorBoundary fallback={<div className="h-full p-4 text-red-400 text-center flex items-center justify-center">Failed to load Leaderboard</div>}>
                     <SalespersonLeaderboard />
                   </ErrorBoundary>
                 </div>
@@ -98,6 +108,13 @@ const App = () => {
             </div>
           </div>
         </div>
+      </div>
+    </main>
+  );
+};
+
+export default App;
+
       </div>
     </main>
   );
