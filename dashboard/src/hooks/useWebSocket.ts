@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 
 export interface WebSocketMessage<T> {
+  type: string;
   data: T;
+  connected_clients?: number;
+  server_time?: string;
 }
 
 export const useWebSocket = <T>(url: string) => {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<WebSocketMessage<T> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -25,7 +28,7 @@ export const useWebSocket = <T>(url: string) => {
 
         ws.onmessage = (event) => {
           try {
-            const parsedData = JSON.parse(event.data) as T;
+            const parsedData = JSON.parse(event.data) as WebSocketMessage<T>;
             setData(parsedData);
           } catch (e) {
             setError('Failed to parse WebSocket message');

@@ -9,13 +9,11 @@ from kafka_consumer import consume_kafka
 
 from websocket import (
     init_websocket,
+    cleanup_websocket,
     router as websocket_router,
     ws_router
 )
 
-# 🟢 FIXED: Use relative imports to prevent ModuleNotFoundError inside the container
-# 🟢 FIXED: Change from relative (.) to absolute imports
-from websocket import init_websocket
 from routers import analytics, insights, pos
 
 
@@ -87,5 +85,6 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     print("Closing backend persistent state infrastructure...")
+    await cleanup_websocket(app)
     if hasattr(app.state, "redis"):
         await app.state.redis.close()

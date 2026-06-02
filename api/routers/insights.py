@@ -9,7 +9,7 @@ router = APIRouter()
 
 def get_redis():
     return Redis(
-        host=os.getenv('REDIS_HOST', 'localhost'),
+        host=os.getenv('REDIS_HOST', 'redis'),
         port=int(os.getenv('REDIS_PORT', 6379)),
         db=0,
         decode_responses=True
@@ -72,7 +72,7 @@ async def get_salesperson_leaderboard(
 
     transactions_hash = r.hgetall(f"pos:{date}")
     if not transactions_hash:
-        raise HTTPException(status_code=404, detail=f"No transaction data found for date {date}")
+        return []
 
     transactions_list = []
     for value in transactions_hash.values():
@@ -82,7 +82,7 @@ async def get_salesperson_leaderboard(
             continue
 
     if not transactions_list:
-        raise HTTPException(status_code=404, detail="No valid transaction data found")
+        return []
 
     df = pd.DataFrame(transactions_list)
     grouped = df.groupby('salesperson_name').agg(

@@ -5,11 +5,12 @@ import { OccupancyData } from '../types/api';
 
 const fetchOccupancyData = async (): Promise<OccupancyData[]> => {
   const apiUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '/api/v1';
-  const response = await fetch(`${apiUrl}/metrics?window_minutes=60`);
+  const response = await fetch(`${apiUrl}/occupancy/history?window_minutes=60&interval_minutes=5`);
   if (!response.ok) {
     throw new Error('Failed to fetch occupancy data');
   }
-  return response.json();
+  const payload = await response.json();
+  return payload.history || [];
 };
 
 export const OccupancyChart = () => {

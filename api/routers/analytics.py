@@ -156,15 +156,44 @@ async def get_funnel(
         else 0
     )
 
-    return {
-        "entered_store": entered_store_count,
-        "browsed_gt_2min": browsed_gt_2min_count,
-        "reached_checkout_zone": reached_checkout_zone_count,
-        "converted": converted_count,
-        "conversion_rate_pct": round(
-            conversion_rate_pct,
-            2
+    return [
+        {"step": "Entered Store", "value": entered_store_count},
+        {"step": "Browsed > 2 min", "value": browsed_gt_2min_count},
+        {"step": "Reached Checkout", "value": reached_checkout_zone_count},
+        {"step": "Converted", "value": converted_count}
+    ]
+
+
+@router.get("/occupancy/history")
+async def get_occupancy_history(
+    window_minutes: int = Query(60, ge=5, le=1440),
+    interval_minutes: int = Query(5, ge=1, le=60),
+    redis: Redis = Depends(get_redis)
+):
+    now = time.time()
+    start = now - (window_minutes * 60)
+    interval_seconds = interval_minutes * 60
+    sample_count = min(int(window_minutes // interval_minutes) + 1, 60)
+
+    history = []
+    for index in range(sample_count):
+        point_time = min(start + (index * interval_seconds), now)
+        count = max(
+            0,
+            redis.zcount("entries", 0, point_time) - redis.zcount("exits", 0, point_time)
         )
+        history.append({
+            "timestamp": datetime.datetime.fromtimestamp(point_time, tz=datetime.timezone.utc).isoformat(),
+            "count": count
+        })
+
+    peak_count = max((item["count"] for item in history), default=0)
+
+    return {
+        "window_minutes": window_minutes,
+        "interval_minutes": interval_minutes,
+        "peak_count": peak_count,
+        "history": history
     }
 
 

@@ -20,6 +20,13 @@ export interface Alert {
   timestamp: string;
 }
 
+export interface WebSocketEvent<T> {
+  type: string;
+  data: T;
+  connected_clients?: number;
+  server_time?: string;
+}
+
 export interface FunnelData {
   step: string;
   value: number;
