@@ -20,10 +20,11 @@ WORKDIR /app
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the api package, services, events, and main.py
+# Copy the api package, services, events, worker, and main.py
 COPY api/ ./api/
 COPY services/ ./services/
 COPY events/ ./events/
+COPY worker/ ./worker/
 COPY main.py .
 
 # Expose the port

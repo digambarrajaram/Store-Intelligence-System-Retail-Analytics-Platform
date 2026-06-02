@@ -81,6 +81,9 @@ services:
       - store-net
 
   api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
     image: digya285/store-intelligence-api:latest
     hostname: api
     container_name: api
