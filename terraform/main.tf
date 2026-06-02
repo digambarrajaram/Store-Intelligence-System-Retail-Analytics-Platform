@@ -37,6 +37,7 @@ resource "aws_instance" "store_instance" {
     apt-get update -y
     apt-get install -y docker.io docker-compose-plugin git
     usermod -aG docker ubuntu
+    git clone 
   EOF
 
   tags = {
