@@ -82,11 +82,11 @@ class TestAPIFunnel:
             # Better approach: mock the actual counting logic
             with patch('src.api.v1.funnel.calculate_funnel_metrics') as mock_calc:
                 mock_calc.return_value = {
-                    **·            "zones": {
-                    "zone_A": {"entries": 2, "unique_tracks": 2},  # Two entries, two unique tracks
-                    "zone_B": {"entries": 0, "unique_tracks": 0}
-                },
-                "conversion_rates": {}
+                    "zones": {
+                        "zone_A": {"entries": 2, "unique_tracks": 2},  # Two entries, two unique tracks
+                        "zone_B": {"entries": 0, "unique_tracks": 0}
+                    },
+                    "conversion_rates": {}
                 }
                 
                 response = await async_client.get("/api/v1/funnel")

@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Request
 from redis import Redis
 from datetime import datetime
 
@@ -8,29 +8,22 @@ from services.transaction_importer import TransactionImporter
 
 router = APIRouter()
 
-def get_redis():
-    return Redis(
-        host=os.getenv('REDIS_HOST', 'redis'),
-        port=int(os.getenv('REDIS_PORT', 6379)),
-        db=0,
-        decode_responses=True
-    )
-
 @router.get("/insights/correlation")
 async def get_correlation_insights(
+    request: Request,
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    r: Redis = Depends(get_redis)
 ):
+    r: Redis = request.app.state.redis
     try:
         datetime.strptime(date, '%Y-%m-%d')
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
 
     # Get vision footfall
-    footfall = int(r.get(f"vision:footfall:{date}") or 0)
+    footfall = int(await r.get(f"vision:footfall:{date}") or 0)
 
     # Get POS aggregates
-    agg_data = r.hgetall(f"pos:aggregates:{date}")
+    agg_data = await r.hgetall(f"pos:aggregates:{date}")
     if not agg_data:
         raise HTTPException(status_code=404, detail=f"No POS data found for date {date}")
 
@@ -63,13 +56,14 @@ async def get_correlation_insights(
 
 @router.get("/insights/salesperson")
 async def get_salesperson_leaderboard(
+    request: Request,
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    r: Redis = Depends(get_redis)
 ):
     try:
         datetime.strptime(date, '%Y-%m-%d')
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
 
+    r: Redis = request.app.state.sync_redis
     ranking = TransactionImporter().get_salesperson_ranking(r, date)
     return ranking or []

@@ -1,41 +1,29 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query, Request
 from redis import Redis
 import datetime
 import time
-import os
-
-from services.conversion_engine import ConversionEngine
 
 router = APIRouter()
 
 
-def get_redis():
-    return Redis(
-        host=os.getenv("REDIS_HOST", "redis"),
-        port=int(os.getenv("REDIS_PORT", 6379)),
-        db=0,
-        decode_responses=True
-    )
-
-
 @router.get("/metrics")
 async def get_metrics(
+    request: Request,
     window_minutes: int = Query(60, ge=1, le=1440),
-    redis: Redis = Depends(get_redis)
 ):
-
+    redis: Redis = request.app.state.redis
     now = time.time()
     start = now - (window_minutes * 60)
 
-    total_entries = redis.zcount("entries", start, now)
-    total_exits = redis.zcount("exits", start, now)
+    total_entries = await redis.zcount("entries", start, now)
+    total_exits = await redis.zcount("exits", start, now)
 
     current_occupancy = max(
         0,
         total_entries - total_exits
     )
 
-    exited_track_ids = redis.zrangebyscore(
+    exited_track_ids = await redis.zrangebyscore(
         "exits",
         start,
         now
@@ -46,7 +34,7 @@ async def get_metrics(
 
     for track_id in exited_track_ids:
 
-        dwell_time = redis.hget(
+        dwell_time = await redis.hget(
             "dwell_times",
             track_id
         )
@@ -68,19 +56,19 @@ async def get_metrics(
     )
 
     peak_occupancy = int(
-        redis.get("peak_occupancy") or 0
+        await redis.get("peak_occupancy") or 0
     )
 
     staff_count = int(
-        redis.get("staff_count") or 0
+        await redis.get("staff_count") or 0
     )
 
     anomaly_count = int(
-        redis.get("anomaly_count") or 0
+        await redis.get("anomaly_count") or 0
     )
 
     camera_fps = float(
-        redis.get("camera_fps") or 0
+        await redis.get("camera_fps") or 0
     )
 
     period_start = datetime.datetime.fromtimestamp(
@@ -114,47 +102,29 @@ async def get_metrics(
 
 
 @router.get("/funnel")
-async def get_funnel(
-    redis: Redis = Depends(get_redis)
-):
+async def get_funnel(request: Request):
+    redis: Redis = request.app.state.redis
 
-    entered_store = redis.smembers(
-        "funnel:entered_store"
-    )
+    entered_store = await redis.smembers("funnel:entered_store") or set()
+    browsed_gt_2min = await redis.smembers("funnel:browsed_gt_2min") or set()
+    reached_checkout_zone = await redis.smembers("funnel:reached_checkout_zone") or set()
+    converted = await redis.smembers("funnel:converted") or set()
 
-    browsed_gt_2min = redis.smembers(
-        "funnel:browsed_gt_2min"
-    )
-
-    reached_checkout_zone = redis.smembers(
-        "funnel:reached_checkout_zone"
-    )
-
-    converted = redis.smembers(
-        "funnel:converted"
-    )
-
-    entered_store_count = len(
-        entered_store
-    )
-
-    browsed_gt_2min_count = len(
-        browsed_gt_2min
-    )
-
-    reached_checkout_zone_count = len(
-        reached_checkout_zone
-    )
-
-    return ConversionEngine(redis).get_funnel_metrics()
+    return [
+        {"step": "Entered Store", "value": len(entered_store)},
+        {"step": "Browsed > 2 min", "value": len(browsed_gt_2min)},
+        {"step": "Reached Checkout", "value": len(reached_checkout_zone)},
+        {"step": "Converted", "value": len(converted)},
+    ]
 
 
 @router.get("/occupancy/history")
 async def get_occupancy_history(
+    request: Request,
     window_minutes: int = Query(60, ge=5, le=1440),
     interval_minutes: int = Query(5, ge=1, le=60),
-    redis: Redis = Depends(get_redis)
 ):
+    redis: Redis = request.app.state.redis
     now = time.time()
     start = now - (window_minutes * 60)
     interval_seconds = interval_minutes * 60
@@ -163,10 +133,9 @@ async def get_occupancy_history(
     history = []
     for index in range(sample_count):
         point_time = min(start + (index * interval_seconds), now)
-        count = max(
-            0,
-            redis.zcount("entries", 0, point_time) - redis.zcount("exits", 0, point_time)
-        )
+        entries = await redis.zcount("entries", 0, point_time)
+        exits = await redis.zcount("exits", 0, point_time)
+        count = max(0, entries - exits)
         history.append({
             "timestamp": datetime.datetime.fromtimestamp(point_time, tz=datetime.timezone.utc).isoformat(),
             "count": count
@@ -177,25 +146,26 @@ async def get_occupancy_history(
 
 @router.get("/kpis")
 async def get_kpis(
+    request: Request,
     window_minutes: int = Query(60, ge=1, le=1440),
-    redis: Redis = Depends(get_redis)
 ):
+    redis: Redis = request.app.state.redis
     now = time.time()
     start = now - (window_minutes * 60)
     
     # Get entries and exits for the time window
-    total_entries = redis.zcount("entries", start, now)
-    total_exits = redis.zcount("exits", start, now)
+    total_entries = await redis.zcount("entries", start, now)
+    total_exits = await redis.zcount("exits", start, now)
     current_occupancy = max(0, total_entries - total_exits)
     
     # Calculate occupancy trend (compare first half vs second half of window)
     mid_point = start + (window_minutes * 60) / 2
-    entries_first_half = redis.zcount("entries", start, mid_point)
-    exits_first_half = redis.zcount("exits", start, mid_point)
+    entries_first_half = await redis.zcount("entries", start, mid_point)
+    exits_first_half = await redis.zcount("exits", start, mid_point)
     occupancy_first_half = max(0, entries_first_half - exits_first_half)
     
-    entries_second_half = redis.zcount("entries", mid_point, now)
-    exits_second_half = redis.zcount("exits", mid_point, now)
+    entries_second_half = await redis.zcount("entries", mid_point, now)
+    exits_second_half = await redis.zcount("exits", mid_point, now)
     occupancy_second_half = max(0, entries_second_half - exits_second_half)
     
     if occupancy_second_half > occupancy_first_half:
@@ -214,18 +184,18 @@ async def get_kpis(
     for i in range(sparkline_window):
         point_start = sparkline_start + (i * 60)
         point_end = point_start + 60
-        count = redis.zcount("entries", point_start, point_end)
+        count = await redis.zcount("entries", point_start, point_end)
         entriesTodaySparkline.append(count)
     
     # Get conversion rate from funnel data
-    entered_store = redis.smembers("funnel:entered_store")
-    converted = redis.smembers("funnel:converted")
+    entered_store = await redis.smembers("funnel:entered_store") or set()
+    converted = await redis.smembers("funnel:converted") or set()
     entered_store_count = len(entered_store)
     converted_count = len(converted)
     conversion_rate = (converted_count / entered_store_count * 100) if entered_store_count > 0 else 0
     
     # Get active anomalies count (assuming we store this in Redis)
-    active_anomalies = int(redis.get("active_anomalies") or 0)
+    active_anomalies = int(await redis.get("active_anomalies") or 0)
     
     return {
         "currentOccupancy": current_occupancy,

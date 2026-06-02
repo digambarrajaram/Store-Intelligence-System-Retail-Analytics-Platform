@@ -1,25 +1,17 @@
 import json
 import os
-from fastapi import APIRouter, Request, UploadFile, HTTPException, Depends
+from fastapi import APIRouter, Request, UploadFile, HTTPException
 from redis import Redis
 
 from services.transaction_importer import TransactionImporter
 
 router = APIRouter()
 
-def get_redis():
-    return Redis(
-        host=os.getenv('REDIS_HOST', 'localhost'),
-        port=int(os.getenv('REDIS_PORT', 6379)),
-        db=0,
-        decode_responses=True
-    )
-
 @router.post("/pos/ingest")
 async def ingest_pos_data(
     request: Request,
-    r: Redis = Depends(get_redis)
 ):
+    r: Redis = request.app.state.sync_redis
     content_type = request.headers.get('content-type', '')
 
     importer = TransactionImporter()

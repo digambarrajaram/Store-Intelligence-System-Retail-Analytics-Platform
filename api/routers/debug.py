@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Request, HTTPException
 from redis import Redis
 import datetime
 import time
@@ -8,22 +8,15 @@ from typing import Optional
 
 router = APIRouter()
 
-def get_redis():
-    return Redis(
-        host=os.getenv('REDIS_HOST', 'localhost'),
-        port=int(os.getenv('REDIS_PORT', 6379)),
-        db=0,
-        decode_responses=True
-    )
-
 @router.post("/simulate", tags=["Debug"])
 async def simulate(
+    request: Request,
     entries: int,
     exits: int,
     anomalies: int,
     dwell_seconds: int,
-    redis: Redis = Depends(get_redis)
 ):
+    redis: Redis = request.app.state.sync_redis
     now = time.time()
     start_time = now - 600
 
@@ -65,7 +58,8 @@ async def simulate(
 
 
 @router.get("/pipeline/status", tags=["Debug"])
-async def pipeline_status(redis: Redis = Depends(get_redis)):
+async def pipeline_status(request: Request):
+    redis: Redis = request.app.state.sync_redis
     return {
         "frames_processed": int(redis.get('cv:pipeline:frames_processed') or 0),
         "last_frame_id": int(redis.get('cv:pipeline:last_frame_id') or 0),
@@ -76,7 +70,8 @@ async def pipeline_status(redis: Redis = Depends(get_redis)):
 
 
 @router.get("/health/integrity", tags=["Debug"])
-async def health_integrity(redis: Redis = Depends(get_redis)):
+async def health_integrity(request: Request):
+    redis: Redis = request.app.state.sync_redis
     metrics_last_updated = redis.get('cv:metrics:last_updated')
     worker_last_heartbeat = redis.get('cv:pipeline:worker_last_heartbeat')
     redis_keys_count = int(redis.dbsize())

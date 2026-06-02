@@ -1,6 +1,7 @@
 import os
 import time
 import asyncio
+from redis import Redis
 from redis import asyncio as aioredis  # Native Redis asyncio module
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,13 +46,28 @@ app.include_router(ws_router)
 @app.get("/health")
 @app.get("/api/v1/health")
 async def health_check():
+    redis_status = "unknown"
+    kafka_status = "unknown"
+    try:
+        if hasattr(app.state, "redis"):
+            redis_ping = await app.state.redis.ping()
+            redis_status = "ok" if redis_ping else "error"
+    except Exception:
+        redis_status = "error"
+
+    try:
+        if hasattr(app.state, "kafka_task"):
+            kafka_status = "ok" if not app.state.kafka_task.done() else "error"
+    except Exception:
+        kafka_status = "error"
+
     return {
-        "status": "healthy",
+        "status": "healthy" if redis_status == "ok" and kafka_status == "ok" else "degraded",
         "env": os.getenv("ENV", "production"),
         "timestamp": int(time.time()),
         "services": {
-            "redis": "ok",
-            "kafka": "ok"
+            "redis": redis_status,
+            "kafka": kafka_status
         },
         "version": "0.1.0"
     }
@@ -72,6 +88,12 @@ async def startup_event():
         encoding="utf-8", 
         decode_responses=True
     )
+    app.state.sync_redis = Redis(
+        host=redis_host,
+        port=redis_port,
+        db=0,
+        decode_responses=True
+    )
     
     # 🟢 FIXED: Removed "await" because init_websocket is a regular synchronous function
     init_websocket(app)
@@ -86,5 +108,13 @@ async def startup_event():
 async def shutdown_event():
     print("Closing backend persistent state infrastructure...")
     await cleanup_websocket(app)
+    if hasattr(app.state, "kafka_task"):
+        app.state.kafka_task.cancel()
+        try:
+            await app.state.kafka_task
+        except asyncio.CancelledError:
+            pass
     if hasattr(app.state, "redis"):
         await app.state.redis.close()
+    if hasattr(app.state, "sync_redis"):
+        app.state.sync_redis.close()
