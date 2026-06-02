@@ -19,7 +19,7 @@ except ImportError:
         from fastapi import FastAPI
         app = FastAPI()
         
-        @app.get("/api/v1/metrics")
+        @app.get("/api/v1/store-metrics")
         async def get_metrics():
             # This would normally query Redis/Kafka
             return {"occupancy": 0, "zones": {}}
@@ -34,7 +34,7 @@ except ImportError:
 
 
 class TestAPIMetrics:
-    """Integration tests for /api/v1/metrics endpoint."""
+    """Integration tests for /api/v1/store-metrics endpoint."""
     
     @pytest.fixture
     def client(self):
@@ -49,7 +49,7 @@ class TestAPIMetrics:
     
     @pytest.mark.asyncio
     async def test_metrics_returns_correct_occupancy_after_simulated_entries_exits(self, async_client, fake_redis):
-        """Test /api/v1/metrics returns correct occupancy after simulated entries/exits."""
+        """Test /api/v1/store-metrics returns correct occupancy after simulated entries/exits."""
         # Mock Redis to return occupancy data
         with patch('src.api.v1.metrics.get_redis', return_value=fake_redis):
             # Simulate some entries
@@ -58,7 +58,7 @@ class TestAPIMetrics:
             fake_redis.hset('zone:B:occupancy', 'track_3', '1')
             
             # Make request
-            response = await async_client.get("/api/v1/metrics")
+            response = await async_client.get("/api/v1/store-metrics")
             assert response.status_code == 200
             
             data = response.json()
@@ -69,7 +69,7 @@ class TestAPIMetrics:
             # Simulate an exit
             fake_redis.hdel('zone:A:occupancy', 'track_1')
             
-            response = await async_client.get("/api/v1/metrics")
+            response = await async_client.get("/api/v1/store-metrics")
             assert response.status_code == 200
             
             data = response.json()
@@ -84,7 +84,7 @@ class TestAPIMetrics:
             # Ensure Redis is empty
             fake_redis.flushall()
             
-            response = await async_client.get("/api/v1/metrics")
+            response = await async_client.get("/api/v1/store-metrics")
             assert response.status_code == 200
             
             data = response.json()
@@ -98,7 +98,7 @@ class TestAPIMetrics:
             # Set up some test data
             fake_redis.hset('zone:test:occupancy', 'track_abc', datetime.now().isoformat())
             
-            response = await async_client.get("/api/v1/metrics")
+            response = await async_client.get("/api/v1/store-metrics")
             assert response.status_code == 200
             
             data = response.json()
@@ -137,7 +137,7 @@ class TestAPIMetrics:
                 # We'll directly update Redis to simulate the effect
                 fake_redis.hset('zone:A:occupancy', entry_event['track_id'], entry_event['timestamp'])
                 
-                response = await async_client.get("/api/v1/metrics")
+                response = await async_client.get("/api/v1/store-metrics")
                 assert response.status_code == 200
                 
                 data = response.json()
@@ -156,7 +156,7 @@ class TestAPIMetrics:
                 mock_process.return_value = None
                 fake_redis.hdel('zone:A:occupancy', exit_event['track_id'])
                 
-                response = await async_client.get("/api/v1/metrics")
+                response = await async_client.get("/api/v1/store-metrics")
                 assert response.status_code == 200
                 
                 data = response.json()

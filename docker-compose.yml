@@ -1,12 +1,18 @@
 version: '3.8'
 
-# Production docker-compose — pulls all images from Docker Hub.
-# No build required. Works on any machine.
+# Production docker-compose — Multi-camera CCTV analytics platform
+# Processes 5 concurrent CCTV feeds (CAM 1.mp4 → CAM 5.mp4)
+# Aggregates store-level analytics with per-camera drill-down
 #
 # SETUP:
 #   cp .env.example .env
-#   mkdir -p videos && cp your_video.mp4 videos/input.mp4
-#   mkdir -p grafana/provisioning  # For Grafana provisioning
+#   mkdir -p videos
+#   cp /path/to/CAM\ 1.mp4 videos/
+#   cp /path/to/CAM\ 2.mp4 videos/
+#   cp /path/to/CAM\ 3.mp4 videos/
+#   cp /path/to/CAM\ 4.mp4 videos/
+#   cp /path/to/CAM\ 5.mp4 videos/
+#   mkdir -p grafana/provisioning
 #   docker compose up -d
 
 services:
@@ -101,7 +107,7 @@ services:
       - REDIS_PORT=6379
       - PYTHONUNBUFFERED=1
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -109,10 +115,10 @@ services:
     networks:
       - store-net
 
-  worker:
+  worker_cam_1:
     image: digya285/store-intelligence-worker:latest
-    hostname: worker
-    container_name: worker
+    hostname: worker_cam_1
+    container_name: worker_cam_1
     restart: unless-stopped
     depends_on:
       redis:
@@ -120,20 +126,148 @@ services:
       kafka:
         condition: service_healthy
     volumes:
-      # Create this directory and add your video: mkdir -p videos && cp input.mp4 videos/
       - ./videos:/app/videos
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - VIDEO_PATH=/app/videos/input.mp4
+      - CAMERA_ID=camera_1
+      - VIDEO_PATH=/app/videos/CAM 1.mp4
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
     ports:
-      - "8001:8001"  # Prometheus metrics port
+      - "8001:8001"
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('worker.alive'); exit(0 if val == '1' else 1)"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_1:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_cam_2:
+    image: digya285/store-intelligence-worker:latest
+    hostname: worker_cam_2
+    container_name: worker_cam_2
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_ID=camera_2
+      - VIDEO_PATH=/app/videos/CAM 2.mp4
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8002:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_2:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_cam_3:
+    image: digya285/store-intelligence-worker:latest
+    hostname: worker_cam_3
+    container_name: worker_cam_3
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_ID=camera_3
+      - VIDEO_PATH=/app/videos/CAM 3.mp4
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8003:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_3:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_cam_4:
+    image: digya285/store-intelligence-worker:latest
+    hostname: worker_cam_4
+    container_name: worker_cam_4
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_ID=camera_4
+      - VIDEO_PATH=/app/videos/CAM 4.mp4
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8004:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_4:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_cam_5:
+    image: digya285/store-intelligence-worker:latest
+    hostname: worker_cam_5
+    container_name: worker_cam_5
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_ID=camera_5
+      - VIDEO_PATH=/app/videos/CAM 5.mp4
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8005:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_5:worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

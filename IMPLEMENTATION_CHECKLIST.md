@@ -327,7 +327,7 @@ docker exec -it redis redis-cli PING
 docker exec -it kafka kafka-topics --bootstrap-server kafka:9092 --list
 
 # 4. API endpoints
-curl "http://localhost:8000/api/v1/metrics?window_minutes=60"
+curl "http://localhost:8000/api/v1/store-metrics?window_minutes=60"
 
 # 5. Check logs for errors
 docker-compose logs | grep ERROR
@@ -347,7 +347,7 @@ docker-compose logs | grep ERROR
 npm install -g loadtest
 
 # Run light load test
-loadtest -c 10 -n 100 http://localhost:8000/api/v1/metrics
+loadtest -c 10 -n 100 http://localhost:8000/api/v1/store-metrics
 
 # Expected: Mean latency < 100ms, 0 errors
 ```
@@ -457,7 +457,7 @@ curl http://localhost:8000/health
 ```bash
 # All checks from Phase 3C, but against production URL
 curl http://your-instance-ip:8000/health
-curl http://your-instance-ip:8000/api/v1/metrics?window_minutes=60
+curl http://your-instance-ip:8000/api/v1/store-metrics?window_minutes=60
 curl http://your-instance-ip:9090/-/healthy
 
 # Check logs
@@ -465,7 +465,7 @@ docker-compose logs api | head -50
 docker-compose logs worker | head -50
 
 # Load test against production
-loadtest -c 10 -n 100 http://your-instance-ip:8000/api/v1/metrics
+loadtest -c 10 -n 100 http://your-instance-ip:8000/api/v1/store-metrics
 ```
 
 - [ ] Run all health checks on production URL
@@ -489,7 +489,7 @@ loadtest -c 10 -n 100 http://your-instance-ip:8000/api/v1/metrics
 
 ```bash
 # Check API
-curl http://your-instance-ip:8000/api/v1/metrics
+curl http://your-instance-ip:8000/api/v1/store-metrics
 
 # Check Prometheus metrics
 curl http://your-instance-ip:9090/api/v1/targets

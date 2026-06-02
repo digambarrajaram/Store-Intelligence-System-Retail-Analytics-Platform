@@ -147,7 +147,7 @@ app.add_middleware(
 Instrumentator().instrument(app).expose(app)  # exposes /metrics endpoint
 
 # Include routers
-app.include_router(analytics.router)
+app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(debug.router)
 app.include_router(insights.router)
 app.include_router(pos.router)

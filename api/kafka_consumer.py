@@ -33,6 +33,8 @@ async def consume_kafka(app):
                 if not isinstance(event, dict):
                     continue
 
+                # Extract camera_id from event
+                camera_id = event.get("camera_id", "unknown")
                 detections = event.get("detections", [])
                 now = time.time()
                 current_tracks = set()
@@ -43,38 +45,65 @@ async def consume_kafka(app):
                         continue
 
                     current_tracks.add(track_id)
-                    exists = await redis.zscore("entries", track_id)
+                    # Camera-specific entry tracking
+                    exists = await redis.zscore(f"camera:{camera_id}:entries", track_id)
                     if exists is None:
-                        await redis.zadd("entries", {track_id: now})
+                        await redis.zadd(f"camera:{camera_id}:entries", {track_id: now})
+                    # Also add to store-wide aggregation
+                    store_exists = await redis.zscore("store:entries", f"{camera_id}:{track_id}")
+                    if store_exists is None:
+                        await redis.zadd("store:entries", {f"{camera_id}:{track_id}": now})
 
-                stored_tracks = await redis.smembers("active_tracks")
+                # Track camera-specific active tracks
+                stored_tracks = await redis.smembers(f"camera:{camera_id}:active_tracks")
                 stored_tracks = set(stored_tracks or [])
                 exited_tracks = stored_tracks - current_tracks
 
                 for track_id in exited_tracks:
-                    already_exited = await redis.zscore("exits", track_id)
+                    # Camera-specific exit tracking
+                    already_exited = await redis.zscore(f"camera:{camera_id}:exits", track_id)
                     if already_exited is None:
-                        await redis.zadd("exits", {track_id: now})
-                        entry_time = await redis.zscore("entries", track_id)
+                        await redis.zadd(f"camera:{camera_id}:exits", {track_id: now})
+                        entry_time = await redis.zscore(f"camera:{camera_id}:entries", track_id)
                         if entry_time is not None:
                             dwell_time = now - float(entry_time)
-                            await redis.hset("dwell_times", track_id, dwell_time)
+                            await redis.hset(f"camera:{camera_id}:dwell_times", track_id, dwell_time)
+                    # Also add to store-wide
+                    store_already_exited = await redis.zscore("store:exits", f"{camera_id}:{track_id}")
+                    if store_already_exited is None:
+                        await redis.zadd("store:exits", {f"{camera_id}:{track_id}": now})
 
-                await redis.delete("active_tracks")
+                # Update active tracks per camera
+                await redis.delete(f"camera:{camera_id}:active_tracks")
                 if current_tracks:
-                    await redis.sadd("active_tracks", *list(current_tracks))
+                    await redis.sadd(f"camera:{camera_id}:active_tracks", *list(current_tracks))
 
+                # Camera-specific occupancy
                 occupancy = len(current_tracks)
-                current_peak = int(await redis.get("peak_occupancy") or 0)
+                current_peak = int(await redis.get(f"camera:{camera_id}:peak_occupancy") or 0)
                 if occupancy > current_peak:
-                    await redis.set("peak_occupancy", occupancy)
-
-                await redis.set("camera_fps", event.get("fps", 0))
+                    await redis.set(f"camera:{camera_id}:peak_occupancy", occupancy)
+                
+                # Store current occupancy for this camera
+                await redis.set(f"camera:{camera_id}:current_occupancy", occupancy)
+                
+                # Store-wide peak occupancy
+                all_cameras_occupancy = 0
+                for cam_num in range(1, 6):
+                    cam_occ = int(await redis.get(f"camera:camera_{cam_num}:current_occupancy") or 0)
+                    all_cameras_occupancy += cam_occ
+                store_peak = int(await redis.get("store:peak_occupancy") or 0)
+                if all_cameras_occupancy > store_peak:
+                    await redis.set("store:peak_occupancy", all_cameras_occupancy)
+                
+                # FPS tracking per camera
+                await redis.set(f"camera:{camera_id}:fps", event.get("fps", 0))
                 await redis.set("metrics:last_updated", now)
 
+                # Anomaly detection per camera (occupancy > 5)
                 if occupancy > 5:
-                    anomaly_count = int(await redis.get("anomaly_count") or 0)
-                    await redis.set("anomaly_count", anomaly_count + 1)
+                    anomaly_count = int(await redis.get(f"camera:{camera_id}:anomaly_count") or 0)
+                    await redis.set(f"camera:{camera_id}:anomaly_count", anomaly_count + 1)
 
         except asyncio.CancelledError:
             print("Kafka consumer task cancelled")

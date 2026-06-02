@@ -6,116 +6,150 @@ import time
 router = APIRouter()
 
 
-@router.get("/metrics")
+@router.get("/store-metrics")
 async def get_metrics(
     request: Request,
     window_minutes: int = Query(60, ge=1, le=1440),
+    camera_id: str = Query(None),
 ):
-    redis: Redis = request.app.state.redis
+    redis = request.app.state.redis
     now = time.time()
     start = now - (window_minutes * 60)
 
-    total_entries = await redis.zcount("entries", start, now)
-    total_exits = await redis.zcount("exits", start, now)
+    # Helper function to get metrics for a specific camera or store-wide
+    async def get_camera_metrics(cam_id: str):
+        if cam_id:
+            entries_key = f"camera:{cam_id}:entries"
+            exits_key = f"camera:{cam_id}:exits"
+            dwell_key = f"camera:{cam_id}:dwell_times"
+            peak_key = f"camera:{cam_id}:peak_occupancy"
+            active_tracks_key = f"camera:{cam_id}:active_tracks"
+            anomaly_key = f"camera:{cam_id}:anomaly_count"
+            fps_key = f"camera:{cam_id}:fps"
+        else:
+            entries_key = "store:entries"
+            exits_key = "store:exits"
+            dwell_key = "store:dwell_times"
+            peak_key = "store:peak_occupancy"
+            active_tracks_key = "store:active_tracks"
+            anomaly_key = "store:anomaly_count"
+            fps_key = "camera_fps"
 
-    current_occupancy = max(
-        0,
-        total_entries - total_exits
-    )
+        total_entries = await redis.zcount(entries_key, start, now)
+        total_exits = await redis.zcount(exits_key, start, now)
 
-    exited_track_ids = await redis.zrangebyscore(
-        "exits",
-        start,
-        now
-    )
+        current_occupancy = max(0, total_entries - total_exits)
 
-    total_dwell_time_seconds = 0
-    valid_exits = 0
+        exited_track_ids = await redis.zrangebyscore(exits_key, start, now)
 
-    for track_id in exited_track_ids:
+        total_dwell_time_seconds = 0
+        valid_exits = 0
 
-        dwell_time = await redis.hget(
-            "dwell_times",
-            track_id
+        for track_id in exited_track_ids:
+            dwell_time = await redis.hget(dwell_key, track_id)
+            if dwell_time is not None:
+                try:
+                    total_dwell_time_seconds += float(dwell_time)
+                    valid_exits += 1
+                except ValueError:
+                    pass
+
+        avg_dwell_minutes = (
+            (total_dwell_time_seconds / 60) / valid_exits
+            if valid_exits > 0
+            else 0
         )
 
-        if dwell_time is not None:
-            try:
-                total_dwell_time_seconds += float(
-                    dwell_time
-                )
-                valid_exits += 1
-            except ValueError:
-                pass
+        peak_occupancy = int(await redis.get(peak_key) or 0)
+        anomaly_count = int(await redis.get(anomaly_key) or 0)
+        camera_fps = float(await redis.get(fps_key) or 0)
 
-    avg_dwell_minutes = (
-        (total_dwell_time_seconds / 60)
-        / valid_exits
-        if valid_exits > 0
-        else 0
-    )
-
-    peak_occupancy = int(
-        await redis.get("peak_occupancy") or 0
-    )
-
-    staff_count = int(
-        await redis.get("staff_count") or 0
-    )
-
-    anomaly_count = int(
-        await redis.get("anomaly_count") or 0
-    )
-
-    camera_fps = float(
-        await redis.get("camera_fps") or 0
-    )
+        return {
+            "total_entries": total_entries,
+            "total_exits": total_exits,
+            "current_occupancy": current_occupancy,
+            "peak_occupancy": peak_occupancy,
+            "avg_dwell_minutes": round(avg_dwell_minutes, 2),
+            "anomaly_count": anomaly_count,
+            "camera_fps": round(camera_fps, 2),
+        }
 
     period_start = datetime.datetime.fromtimestamp(
-        start,
-        tz=datetime.timezone.utc
+        start, tz=datetime.timezone.utc
     )
-
     period_end = datetime.datetime.fromtimestamp(
-        now,
-        tz=datetime.timezone.utc
+        now, tz=datetime.timezone.utc
     )
 
-    return {
-        "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
-        "total_entries": total_entries,
-        "total_exits": total_exits,
-        "current_occupancy": current_occupancy,
-        "peak_occupancy": peak_occupancy,
-        "avg_dwell_minutes": round(
-            avg_dwell_minutes,
-            2
-        ),
-        "staff_count": staff_count,
-        "anomaly_count": anomaly_count,
-        "camera_fps": round(
-            camera_fps,
-            2
-        )
-    }
+    if camera_id == "all":
+        # Return per-camera breakdown
+        metrics = {}
+        for cam_num in range(1, 6):
+            cam_id = f"camera_{cam_num}"
+            metrics[cam_id] = await get_camera_metrics(cam_id)
+        # Add store-wide
+        metrics["store"] = await get_camera_metrics(None)
+        return {
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "cameras": metrics,
+        }
+    elif camera_id:
+        # Return specific camera metrics
+        cam_metrics = await get_camera_metrics(camera_id)
+        return {
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "camera_id": camera_id,
+            **cam_metrics,
+        }
+    else:
+        # Return store-wide metrics
+        cam_metrics = await get_camera_metrics(None)
+        return {
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            **cam_metrics,
+        }
 
 
 @router.get("/funnel")
-async def get_funnel(request: Request):
-    redis: Redis = request.app.state.redis
+async def get_funnel(request: Request, camera_id: str = Query(None)):
+    redis = request.app.state.redis
 
-    entered_store = await redis.smembers("funnel:entered_store") or set()
-    browsed_gt_2min = await redis.smembers("funnel:browsed_gt_2min") or set()
-    reached_checkout_zone = await redis.smembers("funnel:reached_checkout_zone") or set()
-    converted = await redis.smembers("funnel:converted") or set()
+    # Helper function to get funnel for a specific camera or store-wide
+    async def get_camera_funnel(cam_id: str):
+        if cam_id:
+            prefix = f"funnel:camera:{cam_id}:"
+        else:
+            prefix = "funnel:store:"
 
-    return [
-        {"step": "Entered Store", "value": len(entered_store)},
-        {"step": "Browsed > 2 min", "value": len(browsed_gt_2min)},
-        {"step": "Reached Checkout", "value": len(reached_checkout_zone)},
-        {"step": "Converted", "value": len(converted)},
-    ]
+        entered_store = await redis.smembers(f"{prefix}entered_store") or set()
+        browsed_gt_2min = await redis.smembers(f"{prefix}browsed_gt_2min") or set()
+        reached_checkout_zone = await redis.smembers(f"{prefix}reached_checkout_zone") or set()
+        converted = await redis.smembers(f"{prefix}converted") or set()
+
+        return [
+            {"step": "Entered Store", "value": len(entered_store)},
+            {"step": "Browsed > 2 min", "value": len(browsed_gt_2min)},
+            {"step": "Reached Checkout", "value": len(reached_checkout_zone)},
+            {"step": "Converted", "value": len(converted)},
+        ]
+
+    if camera_id == "all":
+        # Return per-camera breakdown
+        funnel_data = {}
+        for cam_num in range(1, 6):
+            cam_id = f"camera_{cam_num}"
+            funnel_data[cam_id] = await get_camera_funnel(cam_id)
+        funnel_data["store"] = await get_camera_funnel(None)
+        return funnel_data
+    elif camera_id:
+        # Return specific camera funnel
+        return await get_camera_funnel(camera_id)
+    else:
+        # Return store-wide funnel
+        return await get_camera_funnel(None)
 
 
 @router.get("/occupancy/history")
@@ -123,22 +157,33 @@ async def get_occupancy_history(
     request: Request,
     window_minutes: int = Query(60, ge=5, le=1440),
     interval_minutes: int = Query(5, ge=1, le=60),
+    camera_id: str = Query(None),
 ):
-    redis: Redis = request.app.state.redis
+    redis = request.app.state.redis
     now = time.time()
     start = now - (window_minutes * 60)
     interval_seconds = interval_minutes * 60
     sample_count = min(int(window_minutes // interval_minutes) + 1, 60)
 
+    # Determine which keys to use
+    if camera_id:
+        entries_key = f"camera:{camera_id}:entries"
+        exits_key = f"camera:{camera_id}:exits"
+    else:
+        entries_key = "store:entries"
+        exits_key = "store:exits"
+
     history = []
     for index in range(sample_count):
         point_time = min(start + (index * interval_seconds), now)
-        entries = await redis.zcount("entries", 0, point_time)
-        exits = await redis.zcount("exits", 0, point_time)
+        entries = await redis.zcount(entries_key, 0, point_time)
+        exits = await redis.zcount(exits_key, 0, point_time)
         count = max(0, entries - exits)
         history.append({
-            "timestamp": datetime.datetime.fromtimestamp(point_time, tz=datetime.timezone.utc).isoformat(),
-            "count": count
+            "timestamp": datetime.datetime.fromtimestamp(
+                point_time, tz=datetime.timezone.utc
+            ).isoformat(),
+            "count": count,
         })
 
     return history

@@ -95,6 +95,23 @@ async def startup_event():
         decode_responses=True
     )
     
+    # Initialize camera-specific metrics keys
+    print("Initializing multi-camera metrics...")
+    for camera_num in range(1, 6):
+        camera_id = f"camera_{camera_num}"
+        # Set initial values for each camera
+        await app.state.redis.set(f"{camera_id}:worker.alive", "0")
+        await app.state.redis.set(f"{camera_id}:current_occupancy", "0")
+        await app.state.redis.set(f"{camera_id}:peak_occupancy", "0")
+        await app.state.redis.set(f"{camera_id}:anomaly_count", "0")
+        await app.state.redis.set(f"{camera_id}:fps", "0")
+    
+    # Initialize store-wide metrics
+    await app.state.redis.set("store:peak_occupancy", "0")
+    await app.state.redis.set("store:anomaly_count", "0")
+    
+    print("Camera metrics initialized")
+    
     # 🟢 FIXED: Removed "await" because init_websocket is a regular synchronous function
     init_websocket(app)
 

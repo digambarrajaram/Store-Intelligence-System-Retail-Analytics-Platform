@@ -81,9 +81,11 @@ async def main():
                 sys.exit(1)
 
     # Write initial heartbeat immediately so healthcheck passes during startup
-    r.set('worker.alive', '1', ex=120)
-    r.set('worker:last_heartbeat', time.time())
-    print("Initial heartbeat written")
+    heartbeat_key = f'{CAMERA_ID}:worker.alive'
+    r.set(heartbeat_key, '1', ex=120)
+    r.set(f'{CAMERA_ID}:worker:last_heartbeat', time.time())
+    r.set(f'{CAMERA_ID}:worker:status', 'initializing')
+    print(f"Initial heartbeat written to {heartbeat_key}")
 
     # Initialize event storage
     event_store = None
@@ -133,8 +135,8 @@ async def main():
     conversion_engine = None
     if ConversionEngine is not None:
         try:
-            conversion_engine = ConversionEngine(r)
-            print("ConversionEngine initialized")
+            conversion_engine = ConversionEngine(r, camera_id=CAMERA_ID)
+            print(f"ConversionEngine initialized for {CAMERA_ID}")
         except Exception as exc:
             print(f"Warning: ConversionEngine initialization failed: {exc}")
             conversion_engine = None
@@ -164,8 +166,8 @@ async def main():
             print(f"Error: Could not open video source '{VIDEO_SOURCE}'")
             # Don't exit — keep container alive so healthcheck can still pass
             # Write heartbeat so worker health endpoint doesn't stale immediately
-            r.set('worker.alive', '1', ex=300)
-            r.set('pipeline:status', json.dumps({
+            r.set(f'{CAMERA_ID}:worker.alive', '1', ex=300)
+            r.set(f'{CAMERA_ID}:pipeline:status', json.dumps({
                 'frames_processed': 0,
                 'last_frame_id': 0,
                 'unique_tracks_seen': 0,
@@ -324,7 +326,7 @@ async def main():
                     print(f"AlertEngine processing failed: {exc}")
 
             try:
-                await producer.send(KAFKA_TOPIC, event)
+                await producer.send(KAFKA_TOPIC, event, key=CAMERA_ID.encode('utf-8'))
                 events_published += 1
             except Exception as e:
                 print(f"Kafka publish error: {e}")
@@ -342,8 +344,8 @@ async def main():
 
             # Heartbeat every 30 seconds
             if current_time - last_heartbeat >= 30:
-                r.set('worker.alive', '1', ex=120)  # expires in 2 min if worker dies
-                r.set('worker:last_heartbeat', current_time)
+                r.set(f'{CAMERA_ID}:worker.alive', '1', ex=120)  # expires in 2 min if worker dies
+                r.set(f'{CAMERA_ID}:worker:last_heartbeat', current_time)
                 last_heartbeat = current_time
 
             # Log FPS every 30 seconds

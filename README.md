@@ -56,7 +56,7 @@ Expected response: `{"status":"healthy","env":"development","timestamp":"...","s
 | Method | Endpoint                 | Description                                                | Response                                  |
 |--------|--------------------------|------------------------------------------------------------|-------------------------------------------|
 | GET    | `/health`                | Health check of API and dependencies                       | `{status, env, timestamp, services, version}` |
-| GET    | `/api/v1/metrics`        | Store KPIs (entries, exits, occupancy, dwell time, etc.)   | JSON with period metrics                  |
+| GET    | `/api/v1/store-metrics`   | Store KPIs (entries, exits, occupancy, dwell time, etc.)   | JSON with period metrics                  |
 | GET    | `/api/v1/funnel`         | Conversion funnel (entered store → browsed → checkout → purchased) | JSON with funnel steps and conversion rate |
 | GET    | `/api/v1/anomalies`      | Recent anomalies (dwell, crowd, loitering) with filtering  | Array of anomaly objects                  |
 | POST   | `/api/v1/pos/ingest`     | Ingest POS data (CSV or JSON) to compute daily aggregates  | `{status, date, transactions_processed, aggregates_cached}` |
@@ -144,7 +144,7 @@ store-intelligence-system/
 2. **Verify health**:  
    `curl http://localhost:8000/health` → should return `"status":"healthy"`
 3. **Check metrics**:  
-   `curl http://localhost:8000/api/v1/metrics` → returns JSON with KPIs (all zeros initially)
+   `curl http://localhost:8000/api/v1/store-metrics` → returns JSON with KPIs (all zeros initially)
 4. **Simulate a detection**:  
    ```bash
    curl -X POST http://localhost:8000/api/v1/ingest/detection \

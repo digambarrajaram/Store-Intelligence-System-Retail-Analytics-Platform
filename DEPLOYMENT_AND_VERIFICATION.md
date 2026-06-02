@@ -172,7 +172,7 @@ docker exec -it kafka kafka-console-consumer \
 
 ```bash
 # Test metrics endpoint
-curl "http://localhost:8000/api/v1/metrics?window_minutes=60"
+curl "http://localhost:8000/api/v1/store-metrics?window_minutes=60"
 # Expected: {"period_start": "...", "total_entries": N, "total_exits": N, ...}
 
 # Test insights endpoint
@@ -223,7 +223,7 @@ curl 'http://localhost:9090/api/v1/query?query={__name__=~"store_entries_total|s
 npm install -g loadtest
 
 # Run light load test (100 requests, 10 concurrent)
-loadtest -c 10 -n 100 http://localhost:8000/api/v1/metrics
+loadtest -c 10 -n 100 http://localhost:8000/api/v1/store-metrics
 
 # Expected metrics:
 # - Mean latency < 100ms
@@ -232,7 +232,7 @@ loadtest -c 10 -n 100 http://localhost:8000/api/v1/metrics
 # - All 100 requests succeeded
 
 # Run sustained load test (1000 requests, 50 concurrent, 30 seconds)
-loadtest -c 50 -t 30 http://localhost:8000/api/v1/metrics
+loadtest -c 50 -t 30 http://localhost:8000/api/v1/store-metrics
 
 # Expected: No connection pool exhaustion, no 502 errors
 ```
