@@ -1,75 +1,33 @@
-from prometheus_fastapi_instrumentator import Instrumentator
-from prometheus_client import Counter, Gauge, Histogram
+"""Compatibility shim for metrics.
 
-# Define custom metrics
-store_entries_total = Counter(
-    'store_entries_total',
-    'Total number of store entries',
-    ['camera_id', 'is_reentry']
-)
+This module used to define Prometheus metrics directly. To avoid duplicate
+registrations when the same process imports both the API and worker code we
+centralised metric definitions in ``worker/metrics.py``. Importing this module
+ensures the shared metrics are available for legacy imports (``import api.metrics``)
+without redefining them.
+"""
 
-store_exits_total = Counter(
-    'store_exits_total',
-    'Total number of store exits',
-    ['camera_id']
-)
+from typing import Any  # keep lint happy for imports below
 
-store_current_occupancy = Gauge(
-    'store_current_occupancy',
-    'Current number of people in the store',
-    ['camera_id']
-)
-
-frame_processing_seconds = Histogram(
-    'frame_processing_seconds',
-    'Time spent processing a frame',
-    ['camera_id'],
-    buckets=[0.05, 0.1, 0.2, 0.5, 1.0]
-)
-
-anomalies_total = Counter(
-    'anomalies_total',
-    'Total number of anomalies detected',
-    ['anomaly_type', 'severity']
-)
-
-kafka_publish_errors_total = Counter(
-    'kafka_publish_errors_total',
-    'Total number of Kafka publish errors',
-    ['topic']
-)
-
-alerts_generated_total = Counter(
-    'alerts_generated_total',
-    'Total number of alerts generated',
-    ['alert_type', 'severity']
-)
-
-zone_transitions_total = Counter(
-    'zone_transitions_total',
-    'Total number of zone transitions detected',
-    ['zone']
-)
-
-conversion_events_total = Counter(
-    'conversion_events_total',
-    'Total number of conversion funnel events processed',
-    ['stage']
-)
-
-occupancy_threshold_breaches_total = Counter(
-    'occupancy_threshold_breaches_total',
-    'Total number of occupancy threshold breaches detected',
-    ['condition']
+# Re-export the shared metrics from the worker package. The definitions live in
+# ``worker/metrics.py`` and use a get-or-create helper to avoid duplicate
+# registrations when the module is imported multiple times in the same process.
+from worker.metrics import (  # noqa: F401
+    store_entries_total,
+    store_exits_total,
+    store_current_occupancy,
+    frame_processing_seconds,
+    anomalies_total,
+    kafka_publish_errors_total,
+    alerts_generated_total,
+    zone_transitions_total,
+    conversion_events_total,
+    occupancy_threshold_breaches_total,
 )
 
 
-def instrument_app(app):
+def instrument_app(app: Any) -> None:
+    """No-op shim. Instrumentation is configured in ``main.py`` to avoid
+    double-instrumenting the FastAPI app.
     """
-    Instruments the FastAPI app with Prometheus metrics.
-    This includes the default metrics from instrumentator and our custom metrics.
-    """
-    Instrumentator().instrument(app).expose(app)
-    # Note: The custom metrics are already defined above and can be used in the app.
-    # We don't need to do anything else to expose them because they are registered with the Prometheus client.
-    # However, we must ensure that the metrics are updated in the application code.
+    return
