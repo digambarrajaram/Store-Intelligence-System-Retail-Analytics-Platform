@@ -114,11 +114,3 @@ const App = () => {
 };
 
 export default App;
-
-      </div>
-    </main>
-  );
-};
-
-
-export default App;
