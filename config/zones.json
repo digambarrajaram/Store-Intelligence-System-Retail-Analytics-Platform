@@ -1,0 +1,27 @@
+{
+  "entry_zone": {
+    "label": "Entry Zone",
+    "description": "Customer entry path",
+    "category": "entry"
+  },
+  "exit_zone": {
+    "label": "Exit Zone",
+    "description": "Customer exit path",
+    "category": "exit"
+  },
+  "browsing_zone": {
+    "label": "Browsing Zone",
+    "description": "Main product browsing area",
+    "category": "browse"
+  },
+  "checkout_zone": {
+    "label": "Checkout Zone",
+    "description": "Point-of-sale checkout area",
+    "category": "checkout"
+  },
+  "staff_zone": {
+    "label": "Staff Zone",
+    "description": "Staff area and back-of-house traffic",
+    "category": "staff"
+  }
+}

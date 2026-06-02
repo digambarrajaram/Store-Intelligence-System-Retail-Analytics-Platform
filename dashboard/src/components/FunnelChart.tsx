@@ -3,6 +3,27 @@ import { FunnelChart as RechartsFunnelChart, Funnel, Tooltip, ResponsiveContaine
 import { usePolling } from '../hooks/usePolling';
 import { FunnelData } from '../types/api';
 
+interface RawFunnelResponse {
+  entered_store?: number;
+  browsed_gt_2min?: number;
+  reached_checkout_zone?: number;
+  converted?: number;
+}
+
+const normalizeFunnelResponse = (payload: any): FunnelData[] => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  const raw = payload as RawFunnelResponse;
+  return [
+    { step: 'Entered Store', value: Number(raw.entered_store || 0) },
+    { step: 'Browsed > 2 min', value: Number(raw.browsed_gt_2min || 0) },
+    { step: 'Checkout Zone', value: Number(raw.reached_checkout_zone || 0) },
+    { step: 'Converted', value: Number(raw.converted || 0) },
+  ];
+};
+
 const fetchFunnelData = async (): Promise<FunnelData[]> => {
   const apiUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '/api/v1';
   const response = await fetch(`${apiUrl}/funnel`);
@@ -13,9 +34,8 @@ const fetchFunnelData = async (): Promise<FunnelData[]> => {
   console.log('[FunnelChart] API Response:', {
     status: response.status,
     payload,
-    count: Array.isArray(payload) ? payload.length : 0
   });
-  return payload;
+  return normalizeFunnelResponse(payload);
 };
 
 const FUNNEL_COLORS = ['#06b6d4', '#0891b2', '#0e7490', '#164e63'];
@@ -67,31 +87,50 @@ export const FunnelChart = () => {
     );
   }
 
+  const entered = data.find((item) => item.step === 'Entered Store')?.value || 0;
+  const converted = data.find((item) => item.step === 'Converted')?.value || 0;
+  const conversionRate = entered > 0 ? Math.round((converted / entered) * 100) : 0;
+
   return (
-    <div ref={containerRef} className="w-full h-full flex flex-col">
-      <ResponsiveContainer width="100%" height="100%" debounce={100}>
-        <RechartsFunnelChart data={data} margin={{ top: 20, right: 160, bottom: 20, left: 20 }}>
-          <Tooltip 
-            contentStyle={{ 
-              backgroundColor: '#0f172a', 
-              border: '1px solid #475569', 
-              borderRadius: '6px',
-              color: '#f1f5f9'
-            }} 
-            labelStyle={{ color: '#f1f5f9' }}
-            formatter={(value) => [`${value} customers`, 'Count']}
-          />
-          <Funnel 
-            dataKey="value" 
-            data={data}
-            isAnimationActive={false}
-          >
-            {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={FUNNEL_COLORS[index % FUNNEL_COLORS.length]} />
-            ))}
-          </Funnel>
-        </RechartsFunnelChart>
-      </ResponsiveContainer>
+    <div ref={containerRef} className="w-full h-full flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-3xl border border-slate-700/50 bg-slate-950/80 p-4 text-sm text-slate-300">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Conversion percentage</p>
+          <p className="mt-3 text-3xl font-semibold text-white">{conversionRate}%</p>
+          <p className="mt-2 text-xs text-slate-500">of store entrants completed a purchase.</p>
+        </div>
+        <div className="rounded-3xl border border-slate-700/50 bg-slate-950/80 p-4 text-sm text-slate-300">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Checkout throughput</p>
+          <p className="mt-3 text-3xl font-semibold text-white">{data.find((item) => item.step === 'Checkout Zone')?.value || 0}</p>
+          <p className="mt-2 text-xs text-slate-500">Customers reached checkout zone in the selected window.</p>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-[260px]">
+        <ResponsiveContainer width="100%" height="100%" debounce={100}>
+          <RechartsFunnelChart data={data} margin={{ top: 20, right: 160, bottom: 20, left: 20 }}>
+            <Tooltip 
+              contentStyle={{ 
+                backgroundColor: '#0f172a', 
+                border: '1px solid #475569', 
+                borderRadius: '6px',
+                color: '#f1f5f9'
+              }} 
+              labelStyle={{ color: '#f1f5f9' }}
+              formatter={(value) => [`${value} customers`, 'Count']}
+            />
+            <Funnel 
+              dataKey="value" 
+              data={data}
+              isAnimationActive={false}
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={FUNNEL_COLORS[index % FUNNEL_COLORS.length]} />
+              ))}
+            </Funnel>
+          </RechartsFunnelChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };

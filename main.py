@@ -24,6 +24,7 @@ from pydantic_settings import BaseSettings
 
 from api.routers import analytics, debug, insights, pos
 from api import websocket  # Our new WebSocket module
+import api.metrics  # Register custom Prometheus metrics
 
 
 # ── Config ─────────────────────────────────────────────────────

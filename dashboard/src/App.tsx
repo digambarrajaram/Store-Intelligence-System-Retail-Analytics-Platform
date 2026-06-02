@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { KPICards } from './components/KPICards';
 import { OccupancyChart } from './components/OccupancyChart';
 import { AnomalyFeed } from './components/AnomalyFeed';
@@ -7,6 +7,16 @@ import { SalespersonLeaderboard } from './components/SalespersonLeaderboard';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const App = () => {
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const activeCameraCount = import.meta.env.VITE_ACTIVE_CAMERAS ? parseInt(import.meta.env.VITE_ACTIVE_CAMERAS, 10) : 4;
+  const buildVersion = import.meta.env.VITE_BUILD_VERSION || '1.0.0';
+  const environment = import.meta.env.VITE_ENVIRONMENT || 'Production';
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setLastUpdated(new Date()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="relative overflow-hidden">
@@ -33,6 +43,20 @@ const App = () => {
                   <p className="text-sm text-slate-400">Updated</p>
                   <p className="mt-1 font-semibold text-sky-400">Every 30s</p>
                 </div>
+              </div>
+            </div>
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-cyan-400/10 backdrop-blur-xl">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-400">System Status</p>
+                <p className="mt-3 text-2xl font-semibold text-white">Operational</p>
+              </div>
+              <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-slate-400/10 backdrop-blur-xl">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Active Cameras</p>
+                <p className="mt-3 text-2xl font-semibold text-cyan-300">{activeCameraCount}</p>
+              </div>
+              <div className="rounded-3xl bg-white/5 p-4 ring-1 ring-slate-400/10 backdrop-blur-xl">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Last Updated</p>
+                <p className="mt-3 text-2xl font-semibold text-sky-300">{lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
               </div>
             </div>
           </header>

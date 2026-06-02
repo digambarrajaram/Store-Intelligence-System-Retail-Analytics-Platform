@@ -18,6 +18,12 @@ export const AnomalyFeed = () => {
   const [toastAlert, setToastAlert] = useState<Alert | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const severityMap = {
+    critical: { icon: '🔥', label: 'Critical', styles: 'bg-rose-500/20 text-rose-300' },
+    warning: { icon: '⚠️', label: 'Warning', styles: 'bg-amber-500/20 text-amber-300' },
+    info: { icon: 'ℹ️', label: 'Info', styles: 'bg-sky-500/20 text-sky-300' },
+  } as const;
+
   useEffect(() => {
     if (!wsMessage) return;
 

@@ -39,6 +39,31 @@ kafka_publish_errors_total = Counter(
     ['topic']
 )
 
+alerts_generated_total = Counter(
+    'alerts_generated_total',
+    'Total number of alerts generated',
+    ['alert_type', 'severity']
+)
+
+zone_transitions_total = Counter(
+    'zone_transitions_total',
+    'Total number of zone transitions detected',
+    ['zone']
+)
+
+conversion_events_total = Counter(
+    'conversion_events_total',
+    'Total number of conversion funnel events processed',
+    ['stage']
+)
+
+occupancy_threshold_breaches_total = Counter(
+    'occupancy_threshold_breaches_total',
+    'Total number of occupancy threshold breaches detected',
+    ['condition']
+)
+
+
 def instrument_app(app):
     """
     Instruments the FastAPI app with Prometheus metrics.

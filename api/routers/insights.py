@@ -1,9 +1,10 @@
-import pandas as pd
 import json
 import os
 from fastapi import APIRouter, HTTPException, Query, Depends
 from redis import Redis
 from datetime import datetime
+
+from services.transaction_importer import TransactionImporter
 
 router = APIRouter()
 
@@ -70,26 +71,5 @@ async def get_salesperson_leaderboard(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
 
-    transactions_hash = r.hgetall(f"pos:{date}")
-    if not transactions_hash:
-        return []
-
-    transactions_list = []
-    for value in transactions_hash.values():
-        try:
-            transactions_list.append(json.loads(value))
-        except json.JSONDecodeError:
-            continue
-
-    if not transactions_list:
-        return []
-
-    df = pd.DataFrame(transactions_list)
-    grouped = df.groupby('salesperson_name').agg(
-        order_count=('order_id', 'count'),
-        total_gmv=('GMV', 'sum')
-    ).reset_index()
-    grouped['avg_basket'] = grouped['total_gmv'] / grouped['order_count']
-    grouped = grouped.sort_values('total_gmv', ascending=False)
-
-    return grouped.to_dict('records')
+    ranking = TransactionImporter().get_salesperson_ranking(r, date)
+    return ranking or []

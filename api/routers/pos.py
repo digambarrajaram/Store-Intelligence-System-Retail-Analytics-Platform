@@ -1,10 +1,9 @@
-import pandas as pd
 import json
-import io
 import os
-from fastapi import APIRouter, Request, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, Request, UploadFile, HTTPException, Depends
 from redis import Redis
-from datetime import datetime
+
+from services.transaction_importer import TransactionImporter
 
 router = APIRouter()
 
@@ -23,61 +22,37 @@ async def ingest_pos_data(
 ):
     content_type = request.headers.get('content-type', '')
 
-    if content_type.startswith('multipart/form-data'):
-        form = await request.form()
-        file: UploadFile = form.get('file')
-        if not file:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        contents = await file.read()
-        df = pd.read_csv(io.BytesIO(contents))
-    elif content_type == 'application/json':
-        body = await request.body()
-        data = json.loads(body)
-        if not isinstance(data, list):
-            raise HTTPException(status_code=400, detail="JSON payload must be an array")
-        df = pd.DataFrame(data)
-    else:
-        raise HTTPException(status_code=400, detail="Use multipart/form-data or application/json")
+    importer = TransactionImporter()
 
-    required_columns = {'order_id', 'order_date', 'salesperson_name', 'qty', 'GMV', 'NMV', 'sub_category', 'brand_name', 'dep_name'}
-    missing = required_columns - set(df.columns)
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Missing columns: {missing}")
-
-    order_date = str(df['order_date'].iloc[0])
     try:
-        datetime.strptime(order_date, '%Y-%m-%d')
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format in data. Expected YYYY-MM-DD")
+        if content_type.startswith('multipart/form-data'):
+            form = await request.form()
+            file: UploadFile = form.get('file')
+            if not file:
+                raise HTTPException(status_code=400, detail="No file uploaded")
+            contents = await file.read()
+            df = importer.parse_csv(contents)
+        elif content_type == 'application/json':
+            body = await request.body()
+            data = json.loads(body)
+            df = importer.parse_json(data)
+        else:
+            raise HTTPException(status_code=400, detail="Use multipart/form-data or application/json")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-    # Store transactions
-    pipe = r.pipeline()
-    for _, row in df.iterrows():
-        pipe.hset(f"pos:{order_date}", str(row['order_id']), row.to_json())
-    pipe.expire(f"pos:{order_date}", 86400)
+    result = importer.store_transactions(df, r)
+    persisted_dates = list(result.get('aggregates', {}).keys())
 
-    # Compute aggregates
-    total_orders = len(df)
-    total_gmv = float(df['GMV'].sum())
-    total_nmv = float(df['NMV'].sum())
-    avg_basket_size = float(df['qty'].mean())
-    top_categories = df.groupby('sub_category')['GMV'].sum().nlargest(3).index.tolist()
-    top_brands = df.groupby('brand_name')['GMV'].sum().nlargest(3).index.tolist()
-
-    pipe.hset(f"pos:aggregates:{order_date}", mapping={
-        "total_orders": total_orders,
-        "total_gmv": total_gmv,
-        "total_nmv": total_nmv,
-        "avg_basket_size": avg_basket_size,
-        "top_categories": json.dumps(top_categories),
-        "top_brands": json.dumps(top_brands)
-    })
-    pipe.expire(f"pos:aggregates:{order_date}", 86400)
-    pipe.execute()
-
-    return {
+    response = {
         "status": "success",
-        "date": order_date,
-        "transactions_processed": total_orders,
+        "dates": persisted_dates,
+        "transactions_processed": result.get('transactions_processed', 0),
+        "salesperson_ranking": result.get('salesperson_ranking', {}),
         "aggregates_cached": True
     }
+
+    if len(persisted_dates) == 1:
+        response["date"] = persisted_dates[0]
+
+    return response

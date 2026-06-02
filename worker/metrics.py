@@ -52,3 +52,31 @@ kafka_publish_errors_total = _get_or_create(
     'Total number of Kafka publish errors',
     ['topic']
 )
+
+alerts_generated_total = _get_or_create(
+    Counter,
+    'alerts_generated_total',
+    'Total number of alerts generated',
+    ['alert_type', 'severity']
+)
+
+zone_transitions_total = _get_or_create(
+    Counter,
+    'zone_transitions_total',
+    'Total number of zone transitions detected',
+    ['zone']
+)
+
+conversion_events_total = _get_or_create(
+    Counter,
+    'conversion_events_total',
+    'Total number of conversion funnel events processed',
+    ['stage']
+)
+
+occupancy_threshold_breaches_total = _get_or_create(
+    Counter,
+    'occupancy_threshold_breaches_total',
+    'Total number of occupancy threshold breaches detected',
+    ['condition']
+)

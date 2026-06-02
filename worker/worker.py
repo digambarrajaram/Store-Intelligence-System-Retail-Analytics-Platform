@@ -20,6 +20,27 @@ except ImportError:
             pass
     kafka_publish_errors_total = DummyCounter()
 
+# Local service imports
+try:
+    from services.video_processor import VideoProcessor
+except ImportError:
+    VideoProcessor = None
+
+try:
+    from services.event_store import EventStore
+except ImportError:
+    EventStore = None
+
+try:
+    from services.conversion_engine import ConversionEngine
+except ImportError:
+    ConversionEngine = None
+
+try:
+    from services.alert_engine import AlertEngine
+except ImportError:
+    AlertEngine = None
+
 # Environment variables with defaults
 MIN_CONFIDENCE = float(os.getenv('MIN_CONFIDENCE', '0.4'))
 FRAME_SKIP = int(os.getenv('FRAME_SKIP', '3'))
@@ -64,6 +85,16 @@ async def main():
     r.set('worker:last_heartbeat', time.time())
     print("Initial heartbeat written")
 
+    # Initialize event storage
+    event_store = None
+    if EventStore is not None:
+        try:
+            event_store = EventStore(r)
+            print("EventStore initialized")
+        except Exception as exc:
+            print(f"Warning: EventStore initialization failed: {exc}")
+            event_store = None
+
     # Kafka producer with retry logic (10 attempts, 5s sleep)
     print("Connecting to Kafka...")
     producer = None
@@ -88,6 +119,34 @@ async def main():
     # Load YOLOv8n model
     model = YOLO('yolov8n.pt')
     print("YOLOv8n model loaded")
+
+    # Initialize video processor for event enrichment
+    processor = None
+    if VideoProcessor is not None:
+        try:
+            processor = VideoProcessor()
+            print("VideoProcessor initialized")
+        except Exception as exc:
+            print(f"Warning: VideoProcessor initialization failed: {exc}")
+            processor = None
+
+    conversion_engine = None
+    if ConversionEngine is not None:
+        try:
+            conversion_engine = ConversionEngine(r)
+            print("ConversionEngine initialized")
+        except Exception as exc:
+            print(f"Warning: ConversionEngine initialization failed: {exc}")
+            conversion_engine = None
+
+    alert_engine = None
+    if AlertEngine is not None and processor is not None:
+        try:
+            alert_engine = AlertEngine(r, processor.zone_manager)
+            print("AlertEngine initialized")
+        except Exception as exc:
+            print(f"Warning: AlertEngine initialization failed: {exc}")
+            alert_engine = None
 
     # Open video source
     source = int(VIDEO_SOURCE) if VIDEO_SOURCE.isdigit() else VIDEO_SOURCE
@@ -218,14 +277,51 @@ async def main():
                     if track_id != -1:
                         unique_tracks.add(track_id)
 
-            # Build and publish event
+            # Build base event payload
+            timestamp = time.time()
             event = {
                 'frame_id': frame_count,
-                'timestamp': time.time(),
+                'timestamp': timestamp,
                 'camera_id': CAMERA_ID,
                 'fps': round(fps, 2),
                 'detections': detections
             }
+
+            # Attach generated customer movement events if the processor is available
+            customer_events = []
+            if processor is not None:
+                try:
+                    customer_events = processor.process_frame(
+                        frame_count,
+                        timestamp,
+                        CAMERA_ID,
+                        detections
+                    )
+                    if customer_events:
+                        event['customer_events'] = customer_events
+                        if event_store is not None:
+                            try:
+                                event_store.save_events(customer_events)
+                            except Exception as exc:
+                                print(f"EventStore save failed: {exc}")
+                        if conversion_engine is not None:
+                            try:
+                                conversion_engine.process_customer_events(customer_events)
+                            except Exception as exc:
+                                print(f"ConversionEngine processing failed: {exc}")
+                except Exception as exc:
+                    print(f"VideoProcessor processing failed: {exc}")
+
+            if alert_engine is not None:
+                try:
+                    alert_engine.process_frame(
+                        customer_events=customer_events,
+                        detections=detections,
+                        timestamp=timestamp,
+                        camera_id=CAMERA_ID,
+                    )
+                except Exception as exc:
+                    print(f"AlertEngine processing failed: {exc}")
 
             try:
                 await producer.send(KAFKA_TOPIC, event)

@@ -4,6 +4,8 @@ import datetime
 import time
 import os
 
+from services.conversion_engine import ConversionEngine
+
 router = APIRouter()
 
 
@@ -144,24 +146,7 @@ async def get_funnel(
         reached_checkout_zone
     )
 
-    converted_count = len(
-        converted
-    )
-
-    conversion_rate_pct = (
-        converted_count
-        / entered_store_count
-        * 100
-        if entered_store_count > 0
-        else 0
-    )
-
-    return [
-        {"step": "Entered Store", "value": entered_store_count},
-        {"step": "Browsed > 2 min", "value": browsed_gt_2min_count},
-        {"step": "Reached Checkout", "value": reached_checkout_zone_count},
-        {"step": "Converted", "value": converted_count}
-    ]
+    return ConversionEngine(redis).get_funnel_metrics()
 
 
 @router.get("/occupancy/history")
@@ -187,14 +172,7 @@ async def get_occupancy_history(
             "count": count
         })
 
-    peak_count = max((item["count"] for item in history), default=0)
-
-    return {
-        "window_minutes": window_minutes,
-        "interval_minutes": interval_minutes,
-        "peak_count": peak_count,
-        "history": history
-    }
+    return history
 
 
 @router.get("/kpis")

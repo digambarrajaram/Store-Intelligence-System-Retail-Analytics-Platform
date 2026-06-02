@@ -13,20 +13,10 @@ const fetchOccupancyData = async (): Promise<OccupancyData[]> => {
   console.log('[OccupancyChart] API Response:', {
     status: response.status,
     payload,
-    historyCount: (payload.history || []).length,
-    sampleData: (payload.history || [])[0]
-  });
-  return payload.history || [];
-};
-
-export const OccupancyChart = () => {
-  const { data, error, isLoading } = usePolling<OccupancyData[]>(fetchOccupancyData, 30000, {
-    immediate: true,
-  });
-
-  const containerRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
+      historyCount: Array.isArray(payload) ? payload.length : 0,
+      sampleData: Array.isArray(payload) ? payload[0] : undefined
+    });
+    return Array.isArray(payload) ? payload : [];
     if (data && data.length > 0) {
       console.log('[OccupancyChart] Data loaded successfully:', {
         count: data.length,
@@ -67,15 +57,20 @@ export const OccupancyChart = () => {
     );
   }
 
-  // Calculate peak for reference line
   const peak = Math.max(...data.map((d) => d.count));
-  const dataWithPeak = data.map((d) => ({ ...d, peak }));
 
   return (
     <div ref={containerRef} className="w-full h-full flex flex-col">
+      <div className="mb-4 flex flex-col gap-3 rounded-3xl border border-slate-700/50 bg-slate-950/80 p-4 text-sm text-slate-300">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span>Peak occupancy</span>
+          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">{peak}</span>
+        </div>
+        <div className="text-xs text-slate-500">Based on the last 60 minutes of entry/exit events.</div>
+      </div>
       <ResponsiveContainer width="100%" height="100%" debounce={100}>
         <AreaChart 
-          data={dataWithPeak} 
+          data={data} 
           margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
           syncId="store-metrics"
         >

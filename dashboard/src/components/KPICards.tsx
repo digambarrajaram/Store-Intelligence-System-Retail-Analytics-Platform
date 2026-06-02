@@ -16,7 +16,7 @@ export const KPICards = () => {
     immediate: true,
   });
 
-  const cardClass = 'rounded-3xl border border-white/10 bg-slate-950/80 p-5 shadow-xl shadow-slate-950/20';
+  const cardClass = 'rounded-3xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-slate-950/20 backdrop-blur-xl';
 
   if (isLoading) {
     return (

@@ -95,8 +95,24 @@ export const SalespersonLeaderboard = () => {
     );
   }
 
+  const topPerformer = sortedData[0];
+
   return (
     <div className="w-full h-full flex flex-col bg-slate-800/20 rounded overflow-hidden">
+      <div className="p-4">
+        <div className="rounded-3xl bg-slate-950/80 p-4 ring-1 ring-cyan-400/15 backdrop-blur-xl">
+          <p className="text-xs uppercase tracking-[0.24em] text-cyan-300">Top Performer</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Best daily GMV</p>
+              <p className="mt-1 text-2xl font-semibold text-white">{topPerformer.name}</p>
+            </div>
+            <div className="rounded-2xl bg-cyan-400/10 px-3 py-2 text-sm font-semibold text-cyan-200">
+              ${topPerformer.gmv.toLocaleString()} | {topPerformer.transactions} orders
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="flex-1 overflow-y-auto">
         <table className="w-full divide-y divide-slate-700">
           <thead className="sticky top-0 bg-slate-950/60 backdrop-blur-sm">
@@ -138,17 +154,17 @@ export const SalespersonLeaderboard = () => {
           </thead>
           <tbody className="divide-y divide-slate-700/50">
             {sortedData.map((person, rank) => (
-              <tr key={person.id} className="hover:bg-slate-700/20 transition-colors">
+              <tr key={person.id} className={`${rank === 0 ? 'bg-slate-700/40' : 'hover:bg-slate-700/20'} transition-colors`}>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <div className="flex items-center gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full ${rank === 0 ? 'bg-gradient-to-br from-emerald-400 to-cyan-500' : 'bg-slate-700'} flex items-center justify-center text-xs font-bold text-white`}>
                       {rank + 1}
                     </div>
                     <span className="text-sm font-medium text-white">{person.name}</span>
                   </div>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-right">
-                  <span className="text-sm font-semibold text-cyan-300">${person.gmv.toLocaleString()}</span>
+                  <span className={`text-sm font-semibold ${rank === 0 ? 'text-emerald-300' : 'text-cyan-300'}`}>${person.gmv.toLocaleString()}</span>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-right">
                   <span className="text-sm text-slate-300">{person.transactions}</span>
