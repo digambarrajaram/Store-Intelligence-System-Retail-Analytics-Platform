@@ -105,6 +105,20 @@ class ConversionEngine:
             self.redis.zadd(f'{self._store_funnel_prefix()}:converted_timestamps', {order_id: timestamp})
         conversion_events_total.labels(stage='converted').inc(len(order_ids))
 
+    async def record_conversions_async(self, df: pd.DataFrame) -> None:
+        if df.empty:
+            return
+
+        order_ids = [str(value) for value in df['order_id'].tolist()]
+        if not order_ids:
+            return
+
+        await self.redis.sadd(f'{self._store_funnel_prefix()}:converted', *order_ids)
+        timestamp = time.time()
+        for order_id in order_ids:
+            await self.redis.zadd(f'{self._store_funnel_prefix()}:converted_timestamps', {order_id: timestamp})
+        conversion_events_total.labels(stage='converted').inc(len(order_ids))
+
     def get_funnel_metrics(self) -> List[Dict[str, int]]:
         entered_store = self.redis.smembers(f'{self._funnel_prefix()}:entered_store') or set()
         browsed_gt_2min = self.redis.smembers(f'{self._funnel_prefix()}:browsed_gt_2min') or set()

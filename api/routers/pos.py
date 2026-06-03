@@ -12,7 +12,7 @@ async def ingest_pos_data(
     request: Request,
     store_id: str = Query("store_1"),
 ):
-    r: Redis = request.app.state.sync_redis
+    r = request.app.state.redis
     content_type = request.headers.get('content-type', '')
 
     importer = TransactionImporter(store_id=store_id)
@@ -34,7 +34,7 @@ async def ingest_pos_data(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    result = importer.store_transactions(df, r)
+    result = await importer.store_transactions(df, r)
     persisted_dates = list(result.get('aggregates', {}).keys())
 
     response = {

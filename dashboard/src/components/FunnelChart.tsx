@@ -26,7 +26,7 @@ const normalizeFunnelResponse = (payload: any): FunnelData[] => {
 
 const fetchFunnelData = async (): Promise<FunnelData[]> => {
   const apiUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '/api/v1';
-  const response = await fetch(`${apiUrl}/analytics/funnel`);
+  const response = await fetch(`${apiUrl}/funnel`);
   if (!response.ok) {
     throw new Error('Failed to fetch funnel data');
   }

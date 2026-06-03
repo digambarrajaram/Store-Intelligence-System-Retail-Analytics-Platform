@@ -67,7 +67,7 @@ class TransactionImporter:
     def _pos_aggregates_key(self, order_date: str) -> str:
         return f'pos:store:{self.store_id}:aggregates:{order_date}'
 
-    def store_transactions(self, df: pd.DataFrame, redis_client) -> Dict[str, Any]:
+    async def store_transactions(self, df: pd.DataFrame, redis_client) -> Dict[str, Any]:
         if df.empty:
             return {
                 'transactions_processed': 0,
@@ -82,8 +82,8 @@ class TransactionImporter:
             transaction = self._build_transaction_row(row)
             order_date = transaction['order_date']
             key = self._pos_key(order_date)
-            redis_client.hset(key, transaction['order_id'], json.dumps(transaction))
-            redis_client.expire(key, 86400)
+            await redis_client.hset(key, transaction['order_id'], json.dumps(transaction))
+            await redis_client.expire(key, 86400)
 
         for order_date, group_df in df.groupby(self.date_field):
             total_orders = int(len(group_df))
@@ -93,7 +93,7 @@ class TransactionImporter:
             top_categories = group_df.groupby('sub_category')['GMV'].sum().nlargest(3).index.tolist()
             top_brands = group_df.groupby('brand_name')['GMV'].sum().nlargest(3).index.tolist()
 
-            redis_client.hset(
+            await redis_client.hset(
                 self._pos_aggregates_key(order_date),
                 mapping={
                     'total_orders': total_orders,
@@ -104,7 +104,7 @@ class TransactionImporter:
                     'top_brands': json.dumps(top_brands)
                 }
             )
-            redis_client.expire(self._pos_aggregates_key(order_date), 86400)
+            await redis_client.expire(self._pos_aggregates_key(order_date), 86400)
 
             aggregates[order_date] = {
                 'total_orders': total_orders,
@@ -125,7 +125,7 @@ class TransactionImporter:
 
         # Record conversion events from POS transactions so funnel conversion counts reflect actual orders.
         try:
-            ConversionEngine(redis_client, store_id=self.store_id).record_conversions(df)
+            await ConversionEngine(redis_client, store_id=self.store_id).record_conversions_async(df)
         except Exception:
             pass
 

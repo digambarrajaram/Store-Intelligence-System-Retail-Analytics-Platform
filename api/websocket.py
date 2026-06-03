@@ -9,12 +9,27 @@ from fastapi.websockets import WebSocketState
 router = APIRouter()
 ws_router = APIRouter()  # Separate router for WebSocket without prefix
 
+# Allowed origins for WebSocket connections
+ALLOWED_ORIGINS = {
+    "http://65.0.204.95:3000",
+    "https://65.0.204.95:3000",
+    "http://localhost:3000",
+    "https://localhost:3000",
+    "http://localhost:5173",
+    "https://localhost:5173",
+}
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
         self.redis = None  # Will be set externally via init
 
     async def connect(self, websocket: WebSocket):
+        # Validate origin
+        origin = websocket.headers.get("origin", "")
+        if origin and origin not in ALLOWED_ORIGINS:
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         self.active_connections.add(websocket)
         # Send catch-up messages
