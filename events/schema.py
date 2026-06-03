@@ -18,7 +18,9 @@ class Detection(BaseModel):
 class DetectionEvent(BaseModel):
     frame_id: int = Field(..., description="Frame identifier from video stream")
     timestamp: datetime = Field(..., description="Timestamp of the frame capture")
+    store_id: str = Field("store_1", description="Unique identifier for the store")
     camera_id: str = Field(..., description="Unique identifier for the camera")
+    zone_id: Optional[str] = Field(None, description="Zone identifier where detection occurred")
     fps: float = Field(..., description="Frames per second of the video stream")
     detections: List[Detection] = Field(..., description="List of detections in the frame")
 
@@ -27,7 +29,9 @@ class FootfallEvent(BaseModel):
     event_type: Literal["entry", "exit"] = Field(..., description="Type of footfall event")
     track_id: int = Field(..., description="Track ID of the person")
     timestamp: datetime = Field(..., description="Timestamp of the event")
+    store_id: str = Field("store_1", description="Store where the event occurred")
     camera_id: str = Field(..., description="Camera where the event occurred")
+    zone_id: Optional[str] = Field(None, description="Zone where the event occurred")
     is_reentry: bool = Field(False, description="Whether this is a re-entry of a previously tracked person")
     is_staff: bool = Field(False, description="Whether the person is identified as staff")
 
@@ -35,7 +39,9 @@ class FootfallEvent(BaseModel):
 class AnomalyEvent(BaseModel):
     anomaly_id: UUID = Field(default_factory=uuid4, description="Unique identifier for the anomaly")
     anomaly_type: Literal["dwell", "crowd", "loitering"] = Field(..., description="Type of anomaly detected")
+    store_id: str = Field("store_1", description="Store where the anomaly was detected")
     camera_id: str = Field(..., description="Camera where the anomaly was detected")
+    zone_id: Optional[str] = Field(None, description="Zone where the anomaly was detected")
     timestamp: datetime = Field(..., description="Timestamp of the anomaly detection")
     severity: Literal["low", "medium", "high"] = Field(..., description="Severity level of the anomaly")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional context-specific metadata")

@@ -20,8 +20,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy worker code
+# Copy worker code and shared modules
 COPY worker/ ./worker/
+COPY services/ ./services/
+COPY events/ ./events/
+COPY config/ ./config/
 
 # Run the worker
 CMD ["python", "worker/worker.py"]

@@ -1,29 +1,85 @@
+import json
 import os
-import time
 import asyncio
-from redis import Redis
-from redis import asyncio as aioredis  # Native Redis asyncio module
+import logging
+from contextlib import asynccontextmanager
+
+import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator
-from kafka_consumer import consume_kafka
+from prometheus_client import make_asgi_app
 
-from websocket import (
-    init_websocket,
-    cleanup_websocket,
-    router as websocket_router,
-    ws_router
-)
+from api.routers import analytics, insights, pos, debug
+from api.kafka_consumer import consume_kafka
 
-from routers import analytics, insights, pos
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def load_camera_config(config_path: str) -> dict:
+    """Load camera configuration from JSON file."""
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                return json.load(f)
+    except Exception as exc:
+        logger.warning(f"Failed to load camera config from {config_path}: {exc}")
+    return {"stores": []}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    redis_host = os.getenv("REDIS_HOST", "redis")
+    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+    config_path = os.getenv("CAMERA_CONFIG_PATH", "/app/config/cameras.json")
+
+    app.state.redis = aioredis.from_url(f"redis://{redis_host}:{redis_port}", decode_responses=True)
+    app.state.sync_redis = None  # Will be set by the debug router if needed
+
+    # Load camera config and store in app state
+    app.state.camera_config = load_camera_config(config_path)
+    app.state.store_ids = [s.get("store_id") for s in app.state.camera_config.get("stores", [])]
+    if not app.state.store_ids:
+        app.state.store_ids = ["store_1"]
+        logger.info("No stores found in config, defaulting to store_1")
+
+    # Initialize store/camera metrics from config
+    for store in app.state.camera_config.get("stores", []):
+        store_id = store.get("store_id", "store_1")
+        for cam in store.get("cameras", []):
+            camera_id = cam.get("camera_id", "unknown")
+            # Pre-initialize Redis keys for each store/camera
+            await app.state.redis.set(f"store:{store_id}:camera:{camera_id}:current_occupancy", 0)
+            await app.state.redis.set(f"store:{store_id}:camera:{camera_id}:peak_occupancy", 0)
+            await app.state.redis.set(f"store:{store_id}:camera:{camera_id}:fps", 0)
+            await app.state.redis.set(f"store:{store_id}:camera:{camera_id}:anomaly_count", 0)
+            logger.info(f"Initialized metrics for {store_id}/{camera_id}")
+
+    # Start Kafka consumer
+    task = asyncio.create_task(consume_kafka(app))
+    logger.info("Application startup complete")
+
+    yield
+
+    # Shutdown
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    await app.state.redis.close()
+    logger.info("Application shutdown complete")
 
 
 app = FastAPI(
-    title="Store Intelligence System API",
-    version="0.1.0"
+    title="Store Intelligence API",
+    description="Multi-store, multi-camera analytics API for retail store intelligence",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
-# 1. Global Configuration Layout: CORS Middleware Setup
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,106 +88,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. Prometheus Metric Hook (Must be global, outside of startup)
-Instrumentator().instrument(app).expose(app)
+# Prometheus metrics endpoint
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
-# 3. Router Registrations 
+# Routers
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(insights.router, prefix="/api/v1")
 app.include_router(pos.router, prefix="/api/v1")
-app.include_router(websocket_router, prefix="/api/v1")
-app.include_router(ws_router)
+app.include_router(debug.router, prefix="/api/v1")
 
-# 4. Mandatory Health Check Route (Fixes Docker Compose 404 Unhealthy Crash)
+
 @app.get("/health")
-@app.get("/api/v1/health")
-async def health_check():
-    redis_status = "unknown"
-    kafka_status = "unknown"
-    try:
-        if hasattr(app.state, "redis"):
-            redis_ping = await app.state.redis.ping()
-            redis_status = "ok" if redis_ping else "error"
-    except Exception:
-        redis_status = "error"
-
-    try:
-        if hasattr(app.state, "kafka_task"):
-            kafka_status = "ok" if not app.state.kafka_task.done() else "error"
-    except Exception:
-        kafka_status = "error"
-
-    return {
-        "status": "healthy" if redis_status == "ok" and kafka_status == "ok" else "degraded",
-        "env": os.getenv("ENV", "production"),
-        "timestamp": int(time.time()),
-        "services": {
-            "redis": redis_status,
-            "kafka": kafka_status
-        },
-        "version": "0.1.0"
-    }
-
-# 5. Lifespan Startup Mechanics
-@app.on_event("startup")
-async def startup_event():
-    print("Initializing background data streaming interfaces...")
-    
-    # Fetch environment parameters securely
-    redis_host = os.getenv("REDIS_HOST", "redis")
-    redis_port = int(os.getenv("REDIS_PORT", 6379))
-    
-    # Establish and bind the connection pool to app.state
-    print(f"Connecting to Redis cluster at {redis_host}:{redis_port}...")
-    app.state.redis = aioredis.from_url(
-        f"redis://{redis_host}:{redis_port}", 
-        encoding="utf-8", 
-        decode_responses=True
-    )
-    app.state.sync_redis = Redis(
-        host=redis_host,
-        port=redis_port,
-        db=0,
-        decode_responses=True
-    )
-    
-    # Initialize camera-specific metrics keys
-    print("Initializing multi-camera metrics...")
-    for camera_num in range(1, 6):
-        camera_id = f"camera_{camera_num}"
-        # Set initial values for each camera
-        await app.state.redis.set(f"{camera_id}:worker.alive", "0")
-        await app.state.redis.set(f"{camera_id}:current_occupancy", "0")
-        await app.state.redis.set(f"{camera_id}:peak_occupancy", "0")
-        await app.state.redis.set(f"{camera_id}:anomaly_count", "0")
-        await app.state.redis.set(f"{camera_id}:fps", "0")
-    
-    # Initialize store-wide metrics
-    await app.state.redis.set("store:peak_occupancy", "0")
-    await app.state.redis.set("store:anomaly_count", "0")
-    
-    print("Camera metrics initialized")
-    
-    # 🟢 FIXED: Removed "await" because init_websocket is a regular synchronous function
-    init_websocket(app)
-
-    app.state.kafka_task = asyncio.create_task(
-        consume_kafka(app)
-    )
-
-    print("Application startup sequence finalized.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("Closing backend persistent state infrastructure...")
-    await cleanup_websocket(app)
-    if hasattr(app.state, "kafka_task"):
-        app.state.kafka_task.cancel()
-        try:
-            await app.state.kafka_task
-        except asyncio.CancelledError:
-            pass
-    if hasattr(app.state, "redis"):
-        await app.state.redis.close()
-    if hasattr(app.state, "sync_redis"):
-        app.state.sync_redis.close()
+async def health():
+    return {"status": "healthy", "version": "2.0.0"}

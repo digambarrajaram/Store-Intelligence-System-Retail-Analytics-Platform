@@ -18,6 +18,7 @@ T = TypeVar("T", bound=BaseModel)
 class KafkaPublisher:
     """
     Async Kafka publisher for CV pipeline events with retry logic and dead letter queue.
+    Supports multi-store, multi-camera partitioning via store_id:camera_id key.
     """
 
     def __init__(
@@ -62,9 +63,19 @@ class KafkaPublisher:
             self._producer = None
             logger.info("Kafka producer stopped")
 
+    def _get_partition_key(self, event: BaseModel) -> bytes | None:
+        """
+        Derive partition key from store_id:camera_id for ordered processing per camera.
+        """
+        payload = event.model_dump()
+        store_id = payload.get("store_id", "unknown")
+        camera_id = payload.get("camera_id", "unknown")
+        return f"{store_id}:{camera_id}".encode("utf-8")
+
     async def publish(self, event: BaseModel) -> None:
         """
         Publish an event to the Kafka topic with retry logic.
+        Uses store_id:camera_id as the partition key for ordered per-camera processing.
 
         Args:
             event: Pydantic model instance to publish
@@ -77,11 +88,16 @@ class KafkaPublisher:
 
         payload = event.model_dump()
         event_type = event.__class__.__name__
+        partition_key = self._get_partition_key(event)
 
         for attempt in range(self.max_retries + 1):
             try:
-                await self._producer.send_and_wait(self.topic, payload)
-                logger.debug(f"Published {event_type} to {self.topic}")
+                await self._producer.send_and_wait(
+                    self.topic,
+                    payload,
+                    key=partition_key,
+                )
+                logger.debug(f"Published {event_type} to {self.topic} with key={partition_key}")
                 return
             except KafkaError as e:
                 logger.warning(

@@ -1,0 +1,46 @@
+{
+  "stores": [
+    {
+      "store_id": "store_1",
+      "cameras": [
+        {
+          "camera_id": "camera_1",
+          "video_path": "/app/videos/CAM 1.mp4"
+        },
+        {
+          "camera_id": "camera_2",
+          "video_path": "/app/videos/CAM 2.mp4"
+        },
+        {
+          "camera_id": "camera_3",
+          "video_path": "/app/videos/CAM 3.mp4"
+        },
+        {
+          "camera_id": "camera_4",
+          "video_path": "/app/videos/CAM 4.mp4"
+        }
+      ]
+    },
+    {
+      "store_id": "store_2",
+      "cameras": [
+        {
+          "camera_id": "camera_1",
+          "video_path": "/app/videos/CAM 5.mp4"
+        },
+        {
+          "camera_id": "camera_2",
+          "video_path": "/app/videos/CAM 6.mp4"
+        },
+        {
+          "camera_id": "camera_3",
+          "video_path": "/app/videos/CAM 7.mp4"
+        },
+        {
+          "camera_id": "camera_4",
+          "video_path": "/app/videos/CAM 8.mp4"
+        }
+      ]
+    }
+  ]
+}

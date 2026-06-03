@@ -26,18 +26,20 @@ def _date_string(timestamp: float) -> str:
 
 
 class EventStore:
-    def __init__(self, redis_client, namespace: str = 'customer_events'):
+    def __init__(self, redis_client, namespace: str = 'customer_events', store_id: str = 'store_1', camera_id: str = None):
         self.redis = redis_client
         self.namespace = namespace
+        self.store_id = store_id
+        self.camera_id = camera_id or 'all'
 
     def _event_key(self, event_id: str) -> str:
-        return f'{self.namespace}:event:{event_id}'
+        return f'{self.namespace}:store:{self.store_id}:camera:{self.camera_id}:event:{event_id}'
 
     def _index_key(self, index_name: str, index_value: str) -> str:
-        return f'{self.namespace}:{index_name}:{index_value}'
+        return f'{self.namespace}:store:{self.store_id}:camera:{self.camera_id}:{index_name}:{index_value}'
 
     def _global_index_key(self) -> str:
-        return f'{self.namespace}:all'
+        return f'{self.namespace}:store:{self.store_id}:camera:{self.camera_id}:all'
 
     def save_event(self, event: Dict[str, Any]) -> str:
         timestamp = _to_timestamp(event.get('timestamp', time.time()))
@@ -54,6 +56,8 @@ class EventStore:
         event_record['zone'] = zone
         event_record['timestamp'] = timestamp
         event_record['date'] = event_date
+        event_record['store_id'] = self.store_id
+        event_record['camera_id'] = self.camera_id
 
         serialized = json.dumps(event_record)
 

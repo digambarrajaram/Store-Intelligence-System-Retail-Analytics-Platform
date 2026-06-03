@@ -16,9 +16,13 @@ class AlertEngine:
         redis_client: Any,
         zone_manager: Any,
         thresholds: Optional[Dict[str, float]] = None,
+        store_id: str = 'store_1',
+        camera_id: str = 'unknown',
     ):
         self.redis = redis_client
         self.zone_manager = zone_manager
+        self.store_id = store_id
+        self.camera_id = camera_id
         self.thresholds = {
             'overcrowding': 10,
             'queue_congestion': 4,
@@ -36,25 +40,30 @@ class AlertEngine:
     def _alert_id(self) -> str:
         return uuid.uuid4().hex
 
+    def _alert_key(self) -> str:
+        return f'store:{self.store_id}:camera:{self.camera_id}:alerts'
+
     def _publish_alert(self, alert: Dict[str, Any]) -> None:
         payload = json.dumps(alert)
         try:
             self.redis.publish('anomaly_alerts', payload)
-            self.redis.lpush('recent_anomalies', payload)
-            self.redis.ltrim('recent_anomalies', 0, 9)
+            self.redis.lpush(self._alert_key(), payload)
+            self.redis.ltrim(self._alert_key(), 0, 9)
             alerts_generated_total.labels(alert_type=alert['type'], severity=alert['severity']).inc()
         except Exception as exc:
             print(f'Alert publish failed: {exc}')
 
     def _record_entry(self, timestamp: float, track_id: str) -> None:
-        self.redis.zadd('alerts:entry_timestamps', {f'{track_id}:{timestamp}': timestamp})
+        key = f'store:{self.store_id}:camera:{self.camera_id}:alerts:entry_timestamps'
+        self.redis.zadd(key, {f'{track_id}:{timestamp}': timestamp})
         window = self.thresholds['traffic_spike_window_sec']
-        self.redis.zremrangebyscore('alerts:entry_timestamps', 0, timestamp - window)
+        self.redis.zremrangebyscore(key, 0, timestamp - window)
 
     def _record_checkout_visit(self, timestamp: float, track_id: str) -> None:
-        self.redis.zadd('alerts:checkout_visits', {f'{track_id}:{timestamp}': timestamp})
+        key = f'store:{self.store_id}:camera:{self.camera_id}:alerts:checkout_visits'
+        self.redis.zadd(key, {f'{track_id}:{timestamp}': timestamp})
         window = self.thresholds['traffic_spike_window_sec']
-        self.redis.zremrangebyscore('alerts:checkout_visits', 0, timestamp - window)
+        self.redis.zremrangebyscore(key, 0, timestamp - window)
 
     def process_frame(
         self,
@@ -111,6 +120,8 @@ class AlertEngine:
             'zone': zone,
             'timestamp': self._now(),
             'metadata': metadata or {},
+            'store_id': self.store_id,
+            'camera_id': self.camera_id,
         }
         self._publish_alert(alert)
 
@@ -163,9 +174,10 @@ class AlertEngine:
             )
 
     def _check_traffic_spike(self, timestamp: float) -> None:
+        key = f'store:{self.store_id}:camera:{self.camera_id}:alerts:entry_timestamps'
         window = self.thresholds['traffic_spike_window_sec']
-        current_minute_count = self.redis.zcount('alerts:entry_timestamps', timestamp - 60, timestamp)
-        historical_count = self.redis.zcount('alerts:entry_timestamps', timestamp - window, timestamp - 60)
+        current_minute_count = self.redis.zcount(key, timestamp - 60, timestamp)
+        historical_count = self.redis.zcount(key, timestamp - window, timestamp - 60)
         historical_avg = historical_count / max(1, window / 60)
         if historical_avg > 0 and current_minute_count > historical_avg * self.thresholds['traffic_spike_factor']:
             self._generate_alert(
@@ -179,8 +191,9 @@ class AlertEngine:
             )
 
     def _check_checkout_bottleneck(self, timestamp: float) -> None:
-        checkout_visits = self.redis.scard('funnel:reached_checkout_zone') or 0
-        converted = self.redis.scard('funnel:converted') or 0
+        store_prefix = f'funnel:store:{self.store_id}'
+        checkout_visits = self.redis.scard(f'{store_prefix}:reached_checkout_zone') or 0
+        converted = self.redis.scard(f'{store_prefix}:converted') or 0
         threshold = int(self.thresholds['checkout_bottleneck_min_visits'])
         if checkout_visits < threshold:
             return

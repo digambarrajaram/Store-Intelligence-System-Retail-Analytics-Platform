@@ -1,17 +1,13 @@
-version: '3.8'
-
-# Production docker-compose — Multi-camera CCTV analytics platform
-# Processes 5 concurrent CCTV feeds (CAM 1.mp4 → CAM 5.mp4)
+# Production docker-compose — Multi-store, multi-camera CCTV analytics platform
+# Processes 8 concurrent CCTV feeds (CAM 1.mp4 → CAM 8.mp4) across 2 stores
 # Aggregates store-level analytics with per-camera drill-down
 #
 # SETUP:
 #   cp .env.example .env
 #   mkdir -p videos
 #   cp /path/to/CAM\ 1.mp4 videos/
-#   cp /path/to/CAM\ 2.mp4 videos/
-#   cp /path/to/CAM\ 3.mp4 videos/
-#   cp /path/to/CAM\ 4.mp4 videos/
-#   cp /path/to/CAM\ 5.mp4 videos/
+#   ...
+#   cp /path/to/CAM\ 8.mp4 videos/
 #   mkdir -p grafana/provisioning
 #   docker compose up -d
 
@@ -28,7 +24,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2181)); s.close()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -60,7 +56,7 @@ services:
     ports:
       - "9093:9093"
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      test: ["CMD", "python", "-c", "from kafka.admin import KafkaAdminClient; c=KafkaAdminClient(bootstrap_servers='localhost:9092', client_id='hc'); c.list_topics(); c.close()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -78,7 +74,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='localhost',port=6379, decode_responses=True); r.ping()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -90,7 +86,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
-    image: digya285/store-intelligence-api:latest
+    image: store-intelligence-api:local
     hostname: api
     container_name: api
     restart: unless-stopped
@@ -115,10 +111,14 @@ services:
     networks:
       - store-net
 
-  worker_cam_1:
-    image: digya285/store-intelligence-worker:latest
-    hostname: worker_cam_1
-    container_name: worker_cam_1
+  # Store 1 workers (4 cameras)
+  worker_store1_cam1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store1_cam1
+    container_name: worker_store1_cam1
     restart: unless-stopped
     depends_on:
       redis:
@@ -127,19 +127,19 @@ services:
         condition: service_healthy
     volumes:
       - ./videos:/app/videos
+      - ./config:/app/config:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
       - CAMERA_ID=camera_1
-      - VIDEO_PATH=/app/videos/CAM 1.mp4
+      - STORE_ID=store_1
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
-    ports:
-      - "8001:8001"
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_1:worker.alive'); exit(0 if val == '1' else 1)"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_1:camera:camera_1:worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -147,10 +147,13 @@ services:
     networks:
       - store-net
 
-  worker_cam_2:
-    image: digya285/store-intelligence-worker:latest
-    hostname: worker_cam_2
-    container_name: worker_cam_2
+  worker_store1_cam2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store1_cam2
+    container_name: worker_store1_cam2
     restart: unless-stopped
     depends_on:
       redis:
@@ -159,19 +162,19 @@ services:
         condition: service_healthy
     volumes:
       - ./videos:/app/videos
+      - ./config:/app/config:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
       - CAMERA_ID=camera_2
-      - VIDEO_PATH=/app/videos/CAM 2.mp4
+      - STORE_ID=store_1
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
-    ports:
-      - "8002:8001"
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_2:worker.alive'); exit(0 if val == '1' else 1)"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_1:camera:camera_2:worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -179,10 +182,13 @@ services:
     networks:
       - store-net
 
-  worker_cam_3:
-    image: digya285/store-intelligence-worker:latest
-    hostname: worker_cam_3
-    container_name: worker_cam_3
+  worker_store1_cam3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store1_cam3
+    container_name: worker_store1_cam3
     restart: unless-stopped
     depends_on:
       redis:
@@ -191,19 +197,19 @@ services:
         condition: service_healthy
     volumes:
       - ./videos:/app/videos
+      - ./config:/app/config:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
       - CAMERA_ID=camera_3
-      - VIDEO_PATH=/app/videos/CAM 3.mp4
+      - STORE_ID=store_1
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
-    ports:
-      - "8003:8001"
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_3:worker.alive'); exit(0 if val == '1' else 1)"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_1:camera:camera_3:worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -211,10 +217,13 @@ services:
     networks:
       - store-net
 
-  worker_cam_4:
-    image: digya285/store-intelligence-worker:latest
-    hostname: worker_cam_4
-    container_name: worker_cam_4
+  worker_store1_cam4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store1_cam4
+    container_name: worker_store1_cam4
     restart: unless-stopped
     depends_on:
       redis:
@@ -223,19 +232,19 @@ services:
         condition: service_healthy
     volumes:
       - ./videos:/app/videos
+      - ./config:/app/config:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
       - CAMERA_ID=camera_4
-      - VIDEO_PATH=/app/videos/CAM 4.mp4
+      - STORE_ID=store_1
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
-    ports:
-      - "8004:8001"
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_4:worker.alive'); exit(0 if val == '1' else 1)"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_1:camera:camera_4:worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -243,10 +252,14 @@ services:
     networks:
       - store-net
 
-  worker_cam_5:
-    image: digya285/store-intelligence-worker:latest
-    hostname: worker_cam_5
-    container_name: worker_cam_5
+  # Store 2 workers (4 cameras)
+  worker_store2_cam1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store2_cam1
+    container_name: worker_store2_cam1
     restart: unless-stopped
     depends_on:
       redis:
@@ -255,19 +268,124 @@ services:
         condition: service_healthy
     volumes:
       - ./videos:/app/videos
+      - ./config:/app/config:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - CAMERA_ID=camera_5
-      - VIDEO_PATH=/app/videos/CAM 5.mp4
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
+      - CAMERA_ID=camera_1
+      - STORE_ID=store_2
       - MIN_CONFIDENCE=0.4
       - FRAME_SKIP=3
       - PYTHONUNBUFFERED=1
-    ports:
-      - "8005:8001"
     healthcheck:
-      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('camera_5:worker.alive'); exit(0 if val == '1' else 1)"]
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_2:camera:camera_1:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_store2_cam2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store2_cam2
+    container_name: worker_store2_cam2
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./config:/app/config:ro
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
+      - CAMERA_ID=camera_2
+      - STORE_ID=store_2
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_2:camera:camera_2:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_store2_cam3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store2_cam3
+    container_name: worker_store2_cam3
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./config:/app/config:ro
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
+      - CAMERA_ID=camera_3
+      - STORE_ID=store_2
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_2:camera:camera_3:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - store-net
+
+  worker_store2_cam4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-intelligence-worker:local
+    hostname: worker_store2_cam4
+    container_name: worker_store2_cam4
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./videos:/app/videos
+      - ./config:/app/config:ro
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
+      - CAMERA_ID=camera_4
+      - STORE_ID=store_2
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_2:camera:camera_4:worker.alive'); exit(0 if val == '1' else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -282,7 +400,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-http://api:8000}
         VITE_WS_URL: ${VITE_WS_URL:-ws://api:8000/ws/alerts}
-    image: digya285/store-intelligence-dashboard:latest
+    image: store-intelligence-dashboard:local
     hostname: dashboard
     container_name: dashboard
     restart: unless-stopped
@@ -295,7 +413,7 @@ services:
       - VITE_API_URL=${VITE_API_URL:-http://api:8000}
       - VITE_WS_URL=${VITE_WS_URL:-ws://api:8000/ws/alerts}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -322,7 +440,7 @@ services:
     ports:
       - "9090:9090"
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/-/healthy')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -346,9 +464,8 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-    # NOTE: Create this directory and add provisioning files: mkdir -p grafana/provisioning
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/api/health')"]
       interval: 30s
       timeout: 10s
       retries: 3

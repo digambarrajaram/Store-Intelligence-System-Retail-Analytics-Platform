@@ -20,8 +20,9 @@ REQUIRED_COLUMNS = {
 
 
 class TransactionImporter:
-    def __init__(self, date_field: str = 'order_date'):
+    def __init__(self, date_field: str = 'order_date', store_id: str = 'store_1'):
         self.date_field = date_field
+        self.store_id = store_id
 
     def _validate_columns(self, df: pd.DataFrame) -> None:
         missing = REQUIRED_COLUMNS - set(df.columns)
@@ -60,6 +61,12 @@ class TransactionImporter:
             'dep_name': str(row['dep_name'])
         }
 
+    def _pos_key(self, order_date: str) -> str:
+        return f'pos:store:{self.store_id}:{order_date}'
+
+    def _pos_aggregates_key(self, order_date: str) -> str:
+        return f'pos:store:{self.store_id}:aggregates:{order_date}'
+
     def store_transactions(self, df: pd.DataFrame, redis_client) -> Dict[str, Any]:
         if df.empty:
             return {
@@ -74,7 +81,7 @@ class TransactionImporter:
         for _, row in df.iterrows():
             transaction = self._build_transaction_row(row)
             order_date = transaction['order_date']
-            key = f'pos:{order_date}'
+            key = self._pos_key(order_date)
             redis_client.hset(key, transaction['order_id'], json.dumps(transaction))
             redis_client.expire(key, 86400)
 
@@ -87,7 +94,7 @@ class TransactionImporter:
             top_brands = group_df.groupby('brand_name')['GMV'].sum().nlargest(3).index.tolist()
 
             redis_client.hset(
-                f'pos:aggregates:{order_date}',
+                self._pos_aggregates_key(order_date),
                 mapping={
                     'total_orders': total_orders,
                     'total_gmv': total_gmv,
@@ -97,7 +104,7 @@ class TransactionImporter:
                     'top_brands': json.dumps(top_brands)
                 }
             )
-            redis_client.expire(f'pos:aggregates:{order_date}', 86400)
+            redis_client.expire(self._pos_aggregates_key(order_date), 86400)
 
             aggregates[order_date] = {
                 'total_orders': total_orders,
@@ -118,7 +125,7 @@ class TransactionImporter:
 
         # Record conversion events from POS transactions so funnel conversion counts reflect actual orders.
         try:
-            ConversionEngine(redis_client).record_conversions(df)
+            ConversionEngine(redis_client, store_id=self.store_id).record_conversions(df)
         except Exception:
             pass
 
@@ -129,7 +136,7 @@ class TransactionImporter:
         }
 
     def get_salesperson_ranking(self, redis_client, date: str) -> List[Dict[str, Any]]:
-        transactions_hash = redis_client.hgetall(f'pos:{date}')
+        transactions_hash = redis_client.hgetall(self._pos_key(date))
         if not transactions_hash:
             return []
 

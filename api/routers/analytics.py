@@ -10,6 +10,7 @@ router = APIRouter()
 async def get_metrics(
     request: Request,
     window_minutes: int = Query(60, ge=1, le=1440),
+    store_id: str = Query("store_1"),
     camera_id: str = Query(None),
 ):
     redis = request.app.state.redis
@@ -19,21 +20,21 @@ async def get_metrics(
     # Helper function to get metrics for a specific camera or store-wide
     async def get_camera_metrics(cam_id: str):
         if cam_id:
-            entries_key = f"camera:{cam_id}:entries"
-            exits_key = f"camera:{cam_id}:exits"
-            dwell_key = f"camera:{cam_id}:dwell_times"
-            peak_key = f"camera:{cam_id}:peak_occupancy"
-            active_tracks_key = f"camera:{cam_id}:active_tracks"
-            anomaly_key = f"camera:{cam_id}:anomaly_count"
-            fps_key = f"camera:{cam_id}:fps"
+            entries_key = f"store:{store_id}:camera:{cam_id}:entries"
+            exits_key = f"store:{store_id}:camera:{cam_id}:exits"
+            dwell_key = f"store:{store_id}:camera:{cam_id}:dwell_times"
+            peak_key = f"store:{store_id}:camera:{cam_id}:peak_occupancy"
+            active_tracks_key = f"store:{store_id}:camera:{cam_id}:active_tracks"
+            anomaly_key = f"store:{store_id}:camera:{cam_id}:anomaly_count"
+            fps_key = f"store:{store_id}:camera:{cam_id}:fps"
         else:
-            entries_key = "store:entries"
-            exits_key = "store:exits"
-            dwell_key = "store:dwell_times"
-            peak_key = "store:peak_occupancy"
-            active_tracks_key = "store:active_tracks"
-            anomaly_key = "store:anomaly_count"
-            fps_key = "camera_fps"
+            entries_key = f"store:{store_id}:entries"
+            exits_key = f"store:{store_id}:exits"
+            dwell_key = f"store:{store_id}:dwell_times"
+            peak_key = f"store:{store_id}:peak_occupancy"
+            active_tracks_key = f"store:{store_id}:active_tracks"
+            anomaly_key = f"store:{store_id}:anomaly_count"
+            fps_key = f"store:{store_id}:camera_fps"
 
         total_entries = await redis.zcount(entries_key, start, now)
         total_exits = await redis.zcount(exits_key, start, now)
@@ -90,6 +91,7 @@ async def get_metrics(
         # Add store-wide
         metrics["store"] = await get_camera_metrics(None)
         return {
+            "store_id": store_id,
             "period_start": period_start.isoformat(),
             "period_end": period_end.isoformat(),
             "cameras": metrics,
@@ -98,6 +100,7 @@ async def get_metrics(
         # Return specific camera metrics
         cam_metrics = await get_camera_metrics(camera_id)
         return {
+            "store_id": store_id,
             "period_start": period_start.isoformat(),
             "period_end": period_end.isoformat(),
             "camera_id": camera_id,
@@ -107,6 +110,7 @@ async def get_metrics(
         # Return store-wide metrics
         cam_metrics = await get_camera_metrics(None)
         return {
+            "store_id": store_id,
             "period_start": period_start.isoformat(),
             "period_end": period_end.isoformat(),
             **cam_metrics,
@@ -114,15 +118,19 @@ async def get_metrics(
 
 
 @router.get("/funnel")
-async def get_funnel(request: Request, camera_id: str = Query(None)):
+async def get_funnel(
+    request: Request,
+    store_id: str = Query("store_1"),
+    camera_id: str = Query(None),
+):
     redis = request.app.state.redis
 
     # Helper function to get funnel for a specific camera or store-wide
     async def get_camera_funnel(cam_id: str):
         if cam_id:
-            prefix = f"funnel:camera:{cam_id}:"
+            prefix = f"funnel:store:{store_id}:camera:{cam_id}:"
         else:
-            prefix = "funnel:store:"
+            prefix = f"funnel:store:{store_id}:"
 
         entered_store = await redis.smembers(f"{prefix}entered_store") or set()
         browsed_gt_2min = await redis.smembers(f"{prefix}browsed_gt_2min") or set()
@@ -143,13 +151,13 @@ async def get_funnel(request: Request, camera_id: str = Query(None)):
             cam_id = f"camera_{cam_num}"
             funnel_data[cam_id] = await get_camera_funnel(cam_id)
         funnel_data["store"] = await get_camera_funnel(None)
-        return funnel_data
+        return {"store_id": store_id, "funnel": funnel_data}
     elif camera_id:
         # Return specific camera funnel
-        return await get_camera_funnel(camera_id)
+        return {"store_id": store_id, "camera_id": camera_id, "funnel": await get_camera_funnel(camera_id)}
     else:
         # Return store-wide funnel
-        return await get_camera_funnel(None)
+        return {"store_id": store_id, "funnel": await get_camera_funnel(None)}
 
 
 @router.get("/occupancy/history")
@@ -157,6 +165,7 @@ async def get_occupancy_history(
     request: Request,
     window_minutes: int = Query(60, ge=5, le=1440),
     interval_minutes: int = Query(5, ge=1, le=60),
+    store_id: str = Query("store_1"),
     camera_id: str = Query(None),
 ):
     redis = request.app.state.redis
@@ -167,11 +176,11 @@ async def get_occupancy_history(
 
     # Determine which keys to use
     if camera_id:
-        entries_key = f"camera:{camera_id}:entries"
-        exits_key = f"camera:{camera_id}:exits"
+        entries_key = f"store:{store_id}:camera:{camera_id}:entries"
+        exits_key = f"store:{store_id}:camera:{camera_id}:exits"
     else:
-        entries_key = "store:entries"
-        exits_key = "store:exits"
+        entries_key = f"store:{store_id}:entries"
+        exits_key = f"store:{store_id}:exits"
 
     history = []
     for index in range(sample_count):
@@ -186,31 +195,32 @@ async def get_occupancy_history(
             "count": count,
         })
 
-    return history
+    return {"store_id": store_id, "camera_id": camera_id or "store", "history": history}
 
 
 @router.get("/kpis")
 async def get_kpis(
     request: Request,
     window_minutes: int = Query(60, ge=1, le=1440),
+    store_id: str = Query("store_1"),
 ):
     redis: Redis = request.app.state.redis
     now = time.time()
     start = now - (window_minutes * 60)
     
     # Get entries and exits for the time window
-    total_entries = await redis.zcount("entries", start, now)
-    total_exits = await redis.zcount("exits", start, now)
+    total_entries = await redis.zcount(f"store:{store_id}:entries", start, now)
+    total_exits = await redis.zcount(f"store:{store_id}:exits", start, now)
     current_occupancy = max(0, total_entries - total_exits)
     
     # Calculate occupancy trend (compare first half vs second half of window)
     mid_point = start + (window_minutes * 60) / 2
-    entries_first_half = await redis.zcount("entries", start, mid_point)
-    exits_first_half = await redis.zcount("exits", start, mid_point)
+    entries_first_half = await redis.zcount(f"store:{store_id}:entries", start, mid_point)
+    exits_first_half = await redis.zcount(f"store:{store_id}:exits", start, mid_point)
     occupancy_first_half = max(0, entries_first_half - exits_first_half)
     
-    entries_second_half = await redis.zcount("entries", mid_point, now)
-    exits_second_half = await redis.zcount("exits", mid_point, now)
+    entries_second_half = await redis.zcount(f"store:{store_id}:entries", mid_point, now)
+    exits_second_half = await redis.zcount(f"store:{store_id}:exits", mid_point, now)
     occupancy_second_half = max(0, entries_second_half - exits_second_half)
     
     if occupancy_second_half > occupancy_first_half:
@@ -229,23 +239,24 @@ async def get_kpis(
     for i in range(sparkline_window):
         point_start = sparkline_start + (i * 60)
         point_end = point_start + 60
-        count = await redis.zcount("entries", point_start, point_end)
+        count = await redis.zcount(f"store:{store_id}:entries", point_start, point_end)
         entriesTodaySparkline.append(count)
     
     # Get conversion rate from funnel data
-    entered_store = await redis.smembers("funnel:entered_store") or set()
-    converted = await redis.smembers("funnel:converted") or set()
+    entered_store = await redis.smembers(f"funnel:store:{store_id}:entered_store") or set()
+    converted = await redis.smembers(f"funnel:store:{store_id}:converted") or set()
     entered_store_count = len(entered_store)
     converted_count = len(converted)
     conversion_rate = (converted_count / entered_store_count * 100) if entered_store_count > 0 else 0
     
-    # Get active anomalies count (assuming we store this in Redis)
-    active_anomalies = int(await redis.get("active_anomalies") or 0)
+    # Get active anomalies count
+    active_anomalies = int(await redis.get(f"store:{store_id}:active_anomalies") or 0)
     
     return {
+        "store_id": store_id,
         "currentOccupancy": current_occupancy,
         "occupancyTrend": occupancy_trend,
-        "totalEntriesToday": total_entries,  # Using window as proxy for today
+        "totalEntriesToday": total_entries,
         "entriesTodaySparkline": entriesTodaySparkline,
         "conversionRate": round(conversion_rate, 2),
         "activeAnomalies": active_anomalies

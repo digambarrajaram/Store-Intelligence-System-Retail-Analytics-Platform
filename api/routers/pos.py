@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import APIRouter, Request, UploadFile, HTTPException
+from fastapi import APIRouter, Request, UploadFile, HTTPException, Query
 from redis import Redis
 
 from services.transaction_importer import TransactionImporter
@@ -10,11 +10,12 @@ router = APIRouter()
 @router.post("/pos/ingest")
 async def ingest_pos_data(
     request: Request,
+    store_id: str = Query("store_1"),
 ):
     r: Redis = request.app.state.sync_redis
     content_type = request.headers.get('content-type', '')
 
-    importer = TransactionImporter()
+    importer = TransactionImporter(store_id=store_id)
 
     try:
         if content_type.startswith('multipart/form-data'):
@@ -37,6 +38,7 @@ async def ingest_pos_data(
     persisted_dates = list(result.get('aggregates', {}).keys())
 
     response = {
+        "store_id": store_id,
         "status": "success",
         "dates": persisted_dates,
         "transactions_processed": result.get('transactions_processed', 0),

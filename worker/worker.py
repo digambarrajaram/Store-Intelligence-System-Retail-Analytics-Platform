@@ -48,6 +48,8 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 KAFKA_TOPIC = os.getenv('KAFKA_TOPIC', 'cv.detections')
 VIDEO_SOURCE = os.getenv('VIDEO_SOURCE', os.getenv('VIDEO_PATH', '0'))
 CAMERA_ID = os.getenv('CAMERA_ID', 'camera_0')
+STORE_ID = os.getenv('STORE_ID', 'store_1')
+CAMERA_CONFIG_PATH = os.getenv('CAMERA_CONFIG_PATH', '/app/config/cameras.json')
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
 
@@ -59,9 +61,37 @@ def signal_handler(sig, frame):
     print('Received shutdown signal. Stopping gracefully...')
     running = False
 
+def load_camera_config(config_path: str, store_id: str, camera_id: str) -> dict | None:
+    """Load camera configuration from JSON file for the given store and camera."""
+    try:
+        if not os.path.exists(config_path):
+            print(f"Camera config not found at {config_path}, using env vars")
+            return None
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        stores = config.get('stores', [])
+        for store in stores:
+            if store.get('store_id') == store_id:
+                for cam in store.get('cameras', []):
+                    if cam.get('camera_id') == camera_id:
+                        return cam
+        print(f"Camera {camera_id} not found in store {store_id} config, using env vars")
+        return None
+    except Exception as exc:
+        print(f"Error loading camera config: {exc}")
+        return None
+
 async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    # Load camera config if available
+    cam_config = load_camera_config(CAMERA_CONFIG_PATH, STORE_ID, CAMERA_ID)
+    if cam_config:
+        video_path = cam_config.get('video_path', VIDEO_SOURCE)
+        print(f"Loaded camera config for {STORE_ID}/{CAMERA_ID}: video_path={video_path}")
+    else:
+        video_path = VIDEO_SOURCE
 
     # Redis connection with retry logic (5 attempts, 3s sleep)
     print("Connecting to Redis...")
@@ -81,17 +111,17 @@ async def main():
                 sys.exit(1)
 
     # Write initial heartbeat immediately so healthcheck passes during startup
-    heartbeat_key = f'{CAMERA_ID}:worker.alive'
+    heartbeat_key = f'store:{STORE_ID}:camera:{CAMERA_ID}:worker.alive'
     r.set(heartbeat_key, '1', ex=120)
-    r.set(f'{CAMERA_ID}:worker:last_heartbeat', time.time())
-    r.set(f'{CAMERA_ID}:worker:status', 'initializing')
+    r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:worker:last_heartbeat', time.time())
+    r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:worker:status', 'initializing')
     print(f"Initial heartbeat written to {heartbeat_key}")
 
     # Initialize event storage
     event_store = None
     if EventStore is not None:
         try:
-            event_store = EventStore(r)
+            event_store = EventStore(r, store_id=STORE_ID, camera_id=CAMERA_ID)
             print("EventStore initialized")
         except Exception as exc:
             print(f"Warning: EventStore initialization failed: {exc}")
@@ -135,8 +165,8 @@ async def main():
     conversion_engine = None
     if ConversionEngine is not None:
         try:
-            conversion_engine = ConversionEngine(r, camera_id=CAMERA_ID)
-            print(f"ConversionEngine initialized for {CAMERA_ID}")
+            conversion_engine = ConversionEngine(r, camera_id=CAMERA_ID, store_id=STORE_ID)
+            print(f"ConversionEngine initialized for {STORE_ID}/{CAMERA_ID}")
         except Exception as exc:
             print(f"Warning: ConversionEngine initialization failed: {exc}")
             conversion_engine = None
@@ -144,35 +174,35 @@ async def main():
     alert_engine = None
     if AlertEngine is not None and processor is not None:
         try:
-            alert_engine = AlertEngine(r, processor.zone_manager)
+            alert_engine = AlertEngine(r, processor.zone_manager, store_id=STORE_ID, camera_id=CAMERA_ID)
             print("AlertEngine initialized")
         except Exception as exc:
             print(f"Warning: AlertEngine initialization failed: {exc}")
             alert_engine = None
 
     # Open video source
-    source = int(VIDEO_SOURCE) if VIDEO_SOURCE.isdigit() else VIDEO_SOURCE
+    source = int(video_path) if video_path.isdigit() else video_path
     
     # Check if VIDEO_SOURCE is a file that exists
-    is_file = not VIDEO_SOURCE.isdigit() and os.path.exists(VIDEO_SOURCE)
+    is_file = not video_path.isdigit() and os.path.exists(video_path)
     
-    if not is_file and not VIDEO_SOURCE.isdigit():
-        print(f"WARNING: Video file not found at {VIDEO_SOURCE}. Running in demo mode.")
+    if not is_file and not video_path.isdigit():
+        print(f"WARNING: Video file not found at {video_path}. Running in demo mode.")
         # Demo mode: we'll generate synthetic events
         cap = None  # We won't use OpenCV capture
     else:
         cap = cv2.VideoCapture(source)
         if not cap.isOpened():
-            print(f"Error: Could not open video source '{VIDEO_SOURCE}'")
+            print(f"Error: Could not open video source '{video_path}'")
             # Don't exit — keep container alive so healthcheck can still pass
             # Write heartbeat so worker health endpoint doesn't stale immediately
-            r.set(f'{CAMERA_ID}:worker.alive', '1', ex=300)
-            r.set(f'{CAMERA_ID}:pipeline:status', json.dumps({
+            r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:worker.alive', '1', ex=300)
+            r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:status', json.dumps({
                 'frames_processed': 0,
                 'last_frame_id': 0,
                 'unique_tracks_seen': 0,
                 'events_published': 0,
-                'error': f'Could not open video source: {VIDEO_SOURCE}'
+                'error': f'Could not open video source: {video_path}'
             }))
             await producer.stop()
             return
@@ -181,7 +211,7 @@ async def main():
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) if cap else 640
     height = int(cap.get(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))) if cap else 480
     if cap:
-        print(f"Video opened: {VIDEO_SOURCE} ({width}x{height} @ {fps:.1f}fps)")
+        print(f"Video opened: {video_path} ({width}x{height} @ {fps:.1f}fps)")
     else:
         print(f"Running in demo mode: generating synthetic events")
 
@@ -284,6 +314,7 @@ async def main():
             event = {
                 'frame_id': frame_count,
                 'timestamp': timestamp,
+                'store_id': STORE_ID,
                 'camera_id': CAMERA_ID,
                 'fps': round(fps, 2),
                 'detections': detections
@@ -326,7 +357,7 @@ async def main():
                     print(f"AlertEngine processing failed: {exc}")
 
             try:
-                await producer.send(KAFKA_TOPIC, event, key=CAMERA_ID.encode('utf-8'))
+                await producer.send(KAFKA_TOPIC, event, key=f'{STORE_ID}:{CAMERA_ID}'.encode('utf-8'))
                 events_published += 1
             except Exception as e:
                 print(f"Kafka publish error: {e}")
@@ -336,36 +367,36 @@ async def main():
 
             # Update pipeline status in Redis every 100 frames
             if processed_count % 100 == 0:
-                r.set('pipeline:frames_processed', processed_count)
-                r.set('pipeline:last_frame_id', frame_count)
-                r.set('pipeline:unique_tracks_seen', len(unique_tracks))
-                r.set('pipeline:events_published', events_published)
+                r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:frames_processed', processed_count)
+                r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:last_frame_id', frame_count)
+                r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:unique_tracks_seen', len(unique_tracks))
+                r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:events_published', events_published)
                 r.set('metrics:last_updated', time.time())
 
             # Heartbeat every 30 seconds
             if current_time - last_heartbeat >= 30:
-                r.set(f'{CAMERA_ID}:worker.alive', '1', ex=120)  # expires in 2 min if worker dies
-                r.set(f'{CAMERA_ID}:worker:last_heartbeat', current_time)
+                r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:worker.alive', '1', ex=120)  # expires in 2 min if worker dies
+                r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:worker:last_heartbeat', current_time)
                 last_heartbeat = current_time
 
             # Log FPS every 30 seconds
             if current_time - last_log_time >= 30:
                 elapsed = current_time - start_time
                 processing_fps = processed_count / elapsed if elapsed > 0 else 0
-                print(f"[{CAMERA_ID}] Frames: {processed_count} | Tracks: {len(unique_tracks)} | FPS: {processing_fps:.2f} | Published: {events_published}")
+                print(f"[{STORE_ID}/{CAMERA_ID}] Frames: {processed_count} | Tracks: {len(unique_tracks)} | FPS: {processing_fps:.2f} | Published: {events_published}")
                 last_log_time = current_time
 
     except Exception as e:
         print(f"Error during processing: {e}")
-        r.set('worker:error', str(e))
+        r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:worker:error', str(e))
     finally:
         if cap:
             cap.release()
         # Final status write
-        r.set('pipeline:frames_processed', processed_count)
-        r.set('pipeline:last_frame_id', frame_count)
-        r.set('pipeline:unique_tracks_seen', len(unique_tracks))
-        r.set('pipeline:events_published', events_published)
+        r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:frames_processed', processed_count)
+        r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:last_frame_id', frame_count)
+        r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:unique_tracks_seen', len(unique_tracks))
+        r.set(f'store:{STORE_ID}:camera:{CAMERA_ID}:pipeline:events_published', events_published)
         await producer.stop()
         print(f"Worker stopped. Total: {processed_count} frames, {len(unique_tracks)} unique tracks, {events_published} events published.")
 
