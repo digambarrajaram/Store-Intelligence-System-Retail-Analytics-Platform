@@ -57,9 +57,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      timeout: 30s
+      retries: 10
+      start_period: 120s
     networks:
       - store-net
 
@@ -412,7 +412,7 @@ services:
       - VITE_API_URL=${VITE_API_URL:-http://api:8000}
       - VITE_WS_URL=${VITE_WS_URL:-ws://api:8000/ws/alerts}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/')"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -439,7 +439,7 @@ services:
     ports:
       - "9090:9090"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/-/healthy')"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -464,7 +464,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/api/health')"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
