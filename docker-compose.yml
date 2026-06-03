@@ -55,10 +55,10 @@ services:
     ports:
       - "9093:9093"
     healthcheck:
-      test: ["CMD", "python", "-c", "from kafka.admin import KafkaAdminClient; c=KafkaAdminClient(bootstrap_servers='localhost:9092', client_id='hc'); c.list_topics(); c.close()"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 60s
     networks:
       - store-net
