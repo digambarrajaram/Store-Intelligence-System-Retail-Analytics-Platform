@@ -398,7 +398,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://api:8000/api/v1}
-        VITE_WS_URL: ${VITE_WS_URL:-ws://api:8000/ws/alerts}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://api:8000}
+
     image: digya285/store-intelligence-dashboard:latest
     hostname: dashboard
     container_name: dashboard
@@ -410,7 +411,8 @@ services:
       - "3000:3000"
     environment:
       - VITE_API_URL=${VITE_API_URL:-http://api:8000/api/v1}
-      - VITE_WS_URL=${VITE_WS_URL:-ws://api:8000/ws/alerts}
+      - VITE_WS_URL=${VITE_WS_URL:-ws://api:8000}
+
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null"]
       interval: 30s

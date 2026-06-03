@@ -148,6 +148,12 @@ class TransactionImporter:
             transactions_hash = await redis_client.hgetall(key)
             if not transactions_hash:
                 print(f"Salesperson ranking: key {key} exists as hash but has no fields")
+                # Check aggregates key as a diagnostic
+                agg_key = self._pos_aggregates_key(date)
+                agg_type = await redis_client.type(agg_key)
+                agg_type_str = agg_type.decode() if isinstance(agg_type, bytes) else str(agg_type)
+                if agg_type_str != 'none':
+                    print(f"Salesperson ranking: aggregates key {agg_key} exists (type={agg_type_str}) but transactions hash is empty")
                 return []
             for value in transactions_hash.values():
                 try:
@@ -170,6 +176,12 @@ class TransactionImporter:
                     return []
         elif key_type_str == 'none':
             print(f"Salesperson ranking: key {key} does not exist in Redis")
+            # Check aggregates key as a diagnostic
+            agg_key = self._pos_aggregates_key(date)
+            agg_type = await redis_client.type(agg_key)
+            agg_type_str = agg_type.decode() if isinstance(agg_type, bytes) else str(agg_type)
+            if agg_type_str != 'none':
+                print(f"Salesperson ranking: transactions key missing but aggregates key {agg_key} exists (type={agg_type_str})")
             return []
         else:
             print(f"Salesperson ranking: key {key} has unexpected type {key_type_str}")

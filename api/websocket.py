@@ -10,6 +10,7 @@ router = APIRouter()
 ws_router = APIRouter()  # Separate router for WebSocket without prefix
 
 # Allowed origins for WebSocket connections
+# Includes deployment and local development origins
 ALLOWED_ORIGINS = {
     "http://65.0.204.95:3000",
     "https://65.0.204.95:3000",
@@ -19,6 +20,8 @@ ALLOWED_ORIGINS = {
     "https://localhost:5173",
     "http://localhost:8000",
     "https://localhost:8000",
+    "http://api:8000",
+    "https://api:8000",
 }
 
 class ConnectionManager:

@@ -10,10 +10,13 @@ interface AlertEvent {
 
 export const AnomalyFeed = () => {
   const rawWsUrl = import.meta.env.VITE_WS_URL?.trim();
+  // If VITE_WS_URL already contains /ws/alerts, use it directly.
+  // Otherwise, append /ws/alerts to the base URL.
   const wsUrl = rawWsUrl
     ? rawWsUrl.replace(/\/$/, '')
     : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
-  const { data: wsMessage, error, isConnected } = useWebSocket<Alert>(`${wsUrl}/ws/alerts`);
+  const fullWsUrl = wsUrl.includes('/ws/alerts') ? wsUrl : `${wsUrl}/ws/alerts`;
+  const { data: wsMessage, error, isConnected } = useWebSocket<Alert>(fullWsUrl);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [toastAlert, setToastAlert] = useState<Alert | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
