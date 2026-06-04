@@ -60,36 +60,40 @@ class ConversionEngine:
             self.redis.set(f'{self._funnel_prefix()}:last_exit:{track_id}', time.time())
 
     def process_customer_events(self, events: List[Dict[str, Any]]) -> None:
-        for event in events:
-            event_type = event.get('event')
-            if event_type == 'staff_ignore':
-                continue
+        try:
+            for event in events:
+                event_type = event.get('event')
+                if event_type == 'staff_ignore':
+                    continue
 
-            customer_id = self._normalize_track_id(event.get('customer_id'))
-            timestamp = float(event.get('timestamp', time.time()))
+                customer_id = self._normalize_track_id(event.get('customer_id'))
+                timestamp = float(event.get('timestamp', time.time()))
 
-            if event_type == 'entry':
-                self._ensure_active_session(customer_id, timestamp)
-                conversion_events_total.labels(stage='entry').inc()
-            elif event_type == 'browse':
-                session_id = self._ensure_active_session(customer_id, timestamp)
-                if not self.redis.sismember(f'{self._funnel_prefix()}:browsed_gt_2min', session_id):
-                    self.redis.sadd(f'{self._funnel_prefix()}:browsed_gt_2min', session_id)
-                    self.redis.hset(self._session_hash_key(session_id), mapping={'has_browsed': 1})
-                    # Also add to store-wide aggregation
-                    self.redis.sadd(f'{self._store_funnel_prefix()}:browsed_gt_2min', session_id)
-                    conversion_events_total.labels(stage='browse').inc()
-            elif event_type == 'checkout_visit':
-                session_id = self._ensure_active_session(customer_id, timestamp)
-                if not self.redis.sismember(f'{self._funnel_prefix()}:reached_checkout_zone', session_id):
-                    self.redis.sadd(f'{self._funnel_prefix()}:reached_checkout_zone', session_id)
-                    self.redis.hset(self._session_hash_key(session_id), mapping={'reached_checkout': 1})
-                    # Also add to store-wide aggregation
-                    self.redis.sadd(f'{self._store_funnel_prefix()}:reached_checkout_zone', session_id)
-                    conversion_events_total.labels(stage='checkout').inc()
-            elif event_type == 'exit':
-                self._close_session(customer_id)
-                conversion_events_total.labels(stage='exit').inc()
+                if event_type == 'entry':
+                    self._ensure_active_session(customer_id, timestamp)
+                    conversion_events_total.labels(stage='entry').inc()
+                elif event_type == 'browse':
+                    session_id = self._ensure_active_session(customer_id, timestamp)
+                    if not self.redis.sismember(f'{self._funnel_prefix()}:browsed_gt_2min', session_id):
+                        self.redis.sadd(f'{self._funnel_prefix()}:browsed_gt_2min', session_id)
+                        self.redis.hset(self._session_hash_key(session_id), mapping={'has_browsed': 1})
+                        # Also add to store-wide aggregation
+                        self.redis.sadd(f'{self._store_funnel_prefix()}:browsed_gt_2min', session_id)
+                        conversion_events_total.labels(stage='browse').inc()
+                elif event_type == 'checkout_visit':
+                    session_id = self._ensure_active_session(customer_id, timestamp)
+                    if not self.redis.sismember(f'{self._funnel_prefix()}:reached_checkout_zone', session_id):
+                        self.redis.sadd(f'{self._funnel_prefix()}:reached_checkout_zone', session_id)
+                        self.redis.hset(self._session_hash_key(session_id), mapping={'reached_checkout': 1})
+                        # Also add to store-wide aggregation
+                        self.redis.sadd(f'{self._store_funnel_prefix()}:reached_checkout_zone', session_id)
+                        conversion_events_total.labels(stage='checkout').inc()
+                elif event_type == 'exit':
+                    self._close_session(customer_id)
+                    conversion_events_total.labels(stage='exit').inc()
+        except Exception:
+            import traceback
+            print(f"ConversionEngine.process_customer_events ERROR: {traceback.format_exc()}")
 
     def record_conversions(self, df: pd.DataFrame) -> None:
         if df.empty:

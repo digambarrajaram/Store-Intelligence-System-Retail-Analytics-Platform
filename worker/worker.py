@@ -159,11 +159,15 @@ async def main():
     model = YOLO('yolov8n.pt')
     print("YOLOv8n model loaded")
 
-    # Initialize video processor for event enrichment
+    # Initialize video processor for event enrichment with per-camera layout
     processor = None
     if VideoProcessor is not None:
         try:
-            processor = VideoProcessor()
+            layout_path = f"/app/config/{STORE_ID}_{CAMERA_ID}_layout.json"
+            if not os.path.exists(layout_path):
+                layout_path = "/app/config/store_layout.json"
+            print(f"Using layout: {layout_path}")
+            processor = VideoProcessor(layout_path=layout_path)
             print("VideoProcessor initialized")
         except Exception as exc:
             print(f"Warning: VideoProcessor initialization failed: {exc}")
