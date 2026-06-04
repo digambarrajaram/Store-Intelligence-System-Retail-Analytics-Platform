@@ -17,7 +17,30 @@ flowchart LR
   Prometheus --> Grafana[Grafana]
 ```
 
+## Multi-Store / Multi-Camera Architecture
+
+The system supports **2 stores with 4 cameras each** (8 concurrent video streams), enabling deployment across multiple retail locations.
+
+- Each camera runs an **independent worker container**, allowing per-camera scaling and fault isolation.
+- Store-level and camera-level metrics are aggregated in Redis for flexible querying.
+- Camera configurations are defined in `config/cameras.json` with per-camera zone layouts in `config/store_*_camera_*_layout.json`.
+
+```
+Store 1                    Store 2
+├── Camera 1 (worker)      ├── Camera 1 (worker)
+├── Camera 2 (worker)      ├── Camera 2 (worker)
+├── Camera 3 (worker)      ├── Camera 3 (worker)
+└── Camera 4 (worker)      └── Camera 4 (worker)
+         │                         │
+         └──────────┬──────────────┘
+                    ▼
+               Kafka Topic
+               (cv.detections)
+```
+
 ## Component Responsibilities
+
+### Core Services
 
 - `worker.py`
   - Orchestrates the video ingestion and event pipeline.
@@ -43,9 +66,65 @@ flowchart LR
   - Generates severity-tagged alerts for overcrowding, bottlenecks, spikes, and dwell issues.
   - Publishes alerts in real time to the existing `/ws/alerts` channel.
 
+- `event_store.py`
+  - Provides event storage and retrieval for analytics queries.
+  - Stores processed events in Redis for fast access by the API layer.
+  - Supports filtering by store, camera, zone, and time range.
+
 - `transaction_importer.py`
-  - Ingests POS CSV transaction data.
-  - Maps transactions into conversion events and integrates funnel data without altering endpoint behavior.
+  - Ingests POS CSV transaction data via the `/api/v1/pos/ingest` endpoint.
+  - Maps transactions into conversion events and integrates funnel data.
+  - Computes daily aggregates and caches them in Redis.
+
+### Detection & Analytics
+
+- `anomaly_detector.py`
+  - Implements **Isolation Forest** algorithm for unsupervised anomaly detection.
+  - Analyzes dwell time, crowd count, and loitering metrics to detect unusual patterns.
+  - Returns severity-tagged anomalies (`low`, `medium`, `high`) via the `/api/v1/anomalies` endpoint.
+
+- `kafka_consumer.py`
+  - Consumes detection events from Kafka topics (`cv.detections`).
+  - Processes incoming events and updates Redis state for real-time analytics.
+  - Runs as an async background task within the FastAPI application lifespan.
+
+### Event Infrastructure
+
+- `events/publisher.py`
+  - Publishes events to Kafka topics and Redis pub/sub channels.
+  - Provides a unified interface for event emission across all services.
+
+- `events/schema.py`
+  - Defines event schemas and data contracts for all event types.
+  - Ensures consistency between producers (workers) and consumers (API).
+
+### Staff Filtering & Re-entry Tracking
+
+- **Staff Filtering**: Prevents employees from being counted in footfall analytics by filtering based on known staff patterns or identifiers.
+- **Re-entry Tracking**: Identifies customers who leave and re-enter the store, preventing double-counting in occupancy and conversion metrics.
+- Both features improve the accuracy of visitor counts and conversion rate calculations.
+
+### Salesperson Tracking
+
+- `seed_salesperson.py`
+  - Seeds initial salesperson records into Redis for POS transaction attribution.
+  - Enables the salesperson leaderboard (`/api/v1/insights/salesperson`) ranked by GMV.
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check of API and dependencies |
+| GET | `/api/v1/stores` | List all configured stores |
+| GET | `/api/v1/stores/{store_id}/cameras` | List cameras for a store |
+| GET | `/api/v1/store-metrics` | Store KPIs (entries, exits, occupancy, dwell time) |
+| GET | `/api/v1/funnel` | Conversion funnel analytics |
+| GET | `/api/v1/anomalies` | Recent anomalies with filtering |
+| POST | `/api/v1/pos/ingest` | Ingest POS data (CSV or JSON) |
+| GET | `/api/v1/insights/correlation` | Vision-to-POS correlation insights |
+| GET | `/api/v1/insights/salesperson` | Salesperson leaderboard by GMV |
+| WS | `/ws/alerts` | Real-time WebSocket stream of anomaly events |
+| GET | `/metrics` | Prometheus metrics endpoint |
 
 ## Event Flow
 
@@ -115,10 +194,13 @@ flowchart LR
 
   subgraph Backend
     FastAPI[FastAPI Backend]
+    Anomaly[Anomaly Detector]
+    KafkaConsumer[Kafka Consumer]
   end
 
   subgraph UI
     Dashboard[React Dashboard]
+    Nginx[Nginx Reverse Proxy]
   end
 
   subgraph Observability
@@ -127,8 +209,11 @@ flowchart LR
   end
 
   VideoCamera --> YOLO --> ByteTrack --> ZoneEngine --> EventGen
-  EventGen --> Kafka --> FastAPI --> Dashboard
+  EventGen --> Kafka --> KafkaConsumer --> FastAPI
   EventGen --> Redis --> FastAPI
+  FastAPI --> Anomaly
+  FastAPI --> Dashboard
+  Nginx --> Dashboard
   FastAPI --> Prometheus --> Grafana
 ```
 
@@ -187,4 +272,27 @@ flowchart LR
   Redis --> FastAPI
   WebSocket --> Dashboard
   Prometheus --> Grafana
+```
+
+### POS Data Ingestion Flow
+
+```mermaid
+flowchart LR
+  POS[POS CSV/JSON] -->|POST /api/v1/pos/ingest| FastAPI
+  FastAPI --> TransactionImporter[Transaction Importer]
+  TransactionImporter --> ConversionEngine[Conversion Engine]
+  ConversionEngine --> Redis[Redis Cache]
+  FastAPI -->|GET /api/v1/insights/correlation| Redis
+  FastAPI -->|GET /api/v1/insights/salesperson| Redis
+```
+
+### Anomaly Detection Flow
+
+```mermaid
+flowchart TD
+  Metrics[Dwell / Crowd / Loitering Metrics] --> AnomalyDetector
+  AnomalyDetector -->|Isolation Forest| Anomalies[Detected Anomalies]
+  Anomalies -->|Severity: low/medium/high| Redis
+  Redis -->|GET /api/v1/anomalies| FastAPI
+  Redis -->|/ws/alerts| WebSocket
 ```
