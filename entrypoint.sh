@@ -1,10 +1,26 @@
 #!/bin/sh
 set -e
 
-if [ -n "$CAMERA_ID" ] || [ -n "$STORE_ID" ]; then
-  echo "Starting worker in single-camera mode: STORE_ID=${STORE_ID:-<none>} CAMERA_ID=${CAMERA_ID:-<none>}"
-else
-  echo "Starting worker in multi-camera mode (loading cameras from $CAMERA_CONFIG_PATH)"
-fi
+# Wait for Redis to be ready
+echo "Waiting for Redis..."
+for i in $(seq 1 30); do
+  if python -c "import redis; r=redis.Redis(host='${REDIS_HOST:-redis}', port=${REDIS_PORT:-6379}); r.ping()" 2>/dev/null; then
+    echo "Redis is ready"
+    break
+  fi
+  echo "Waiting for Redis... attempt $i"
+  sleep 2
+done
 
-exec python worker/worker.py
+# Seed salesperson data
+echo "Seeding salesperson data..."
+python /app/worker/seed_salesperson.py
+
+# Start the API
+echo "Starting API server..."
+exec uvicorn main:app \
+     --host 0.0.0.0 \
+     --port 8000 \
+     --workers 1 \
+     --timeout-keep-alive 30 \
+     --access-log

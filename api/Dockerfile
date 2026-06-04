@@ -15,10 +15,7 @@ COPY . .
 EXPOSE 8000
 
 
-CMD python /app/worker/seed_salesperson.py && \
-    uvicorn main:app \
-     --host 0.0.0.0 \
-     --port 8000 \
-     --workers 1 \
-     --timeout-keep-alive 30 \
-     --access-log
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+CMD ["/entrypoint.sh"]
