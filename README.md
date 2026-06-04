@@ -1,7 +1,7 @@
 # 🛒 Store Intelligence System
 ### Purplle Tech Challenge 2026 Submission
 
-An AI-powered retail analytics platform that processes CCTV video streams to deliver real-time footfall analytics, anomaly detection, and business insights.
+An retail analytics platform that processes CCTV video streams to deliver real-time footfall analytics, anomaly detection, and business insights.
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
@@ -13,8 +13,8 @@ An AI-powered retail analytics platform that processes CCTV video streams to del
 
 ## Quick Start
 ```bash
-git clone https://github.com/digambarrajaram/Store-Intelligence-System-AI-Powered-Retail-Analytics-Platform.git
-cd Store-Intelligence-System-AI-Powered-Retail-Analytics-Platform
+git clone https://github.com/digambarrajaram/Store-Intelligence-System-Retail-Analytics-Platform.git
+cd Store-Intelligence-System-Retail-Analytics-Platform
 cp .env.example .env
 docker compose up -d
 curl http://localhost:8000/health
