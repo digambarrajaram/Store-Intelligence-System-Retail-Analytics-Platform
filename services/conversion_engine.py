@@ -71,7 +71,7 @@ class ConversionEngine:
 
                 if event_type == 'entry':
                     self._ensure_active_session(customer_id, timestamp)
-                    conversion_events_total.labels(stage='entry').inc()
+                    conversion_events_total.labels(store_id=self.store_id, camera_id=self.camera_id, stage='entry').inc()
                 elif event_type == 'browse':
                     session_id = self._ensure_active_session(customer_id, timestamp)
                     if not self.redis.sismember(f'{self._funnel_prefix()}:browsed_gt_2min', session_id):
@@ -79,7 +79,7 @@ class ConversionEngine:
                         self.redis.hset(self._session_hash_key(session_id), mapping={'has_browsed': 1})
                         # Also add to store-wide aggregation
                         self.redis.sadd(f'{self._store_funnel_prefix()}:browsed_gt_2min', session_id)
-                        conversion_events_total.labels(stage='browse').inc()
+                        conversion_events_total.labels(store_id=self.store_id, camera_id=self.camera_id, stage='browse').inc()
                 elif event_type == 'checkout_visit':
                     session_id = self._ensure_active_session(customer_id, timestamp)
                     if not self.redis.sismember(f'{self._funnel_prefix()}:reached_checkout_zone', session_id):
@@ -87,10 +87,10 @@ class ConversionEngine:
                         self.redis.hset(self._session_hash_key(session_id), mapping={'reached_checkout': 1})
                         # Also add to store-wide aggregation
                         self.redis.sadd(f'{self._store_funnel_prefix()}:reached_checkout_zone', session_id)
-                        conversion_events_total.labels(stage='checkout').inc()
+                        conversion_events_total.labels(store_id=self.store_id, camera_id=self.camera_id, stage='checkout').inc()
                 elif event_type == 'exit':
                     self._close_session(customer_id)
-                    conversion_events_total.labels(stage='exit').inc()
+                    conversion_events_total.labels(store_id=self.store_id, camera_id=self.camera_id, stage='exit').inc()
         except Exception:
             import traceback
             print(f"ConversionEngine.process_customer_events ERROR: {traceback.format_exc()}")
@@ -107,7 +107,7 @@ class ConversionEngine:
         timestamp = time.time()
         for order_id in order_ids:
             self.redis.zadd(f'{self._store_funnel_prefix()}:converted_timestamps', {order_id: timestamp})
-        conversion_events_total.labels(stage='converted').inc(len(order_ids))
+        conversion_events_total.labels(store_id=self.store_id, camera_id=self.camera_id, stage='converted').inc(len(order_ids))
 
     async def record_conversions_async(self, df: pd.DataFrame) -> None:
         if df.empty:
@@ -121,7 +121,7 @@ class ConversionEngine:
         timestamp = time.time()
         for order_id in order_ids:
             await self.redis.zadd(f'{self._store_funnel_prefix()}:converted_timestamps', {order_id: timestamp})
-        conversion_events_total.labels(stage='converted').inc(len(order_ids))
+        conversion_events_total.labels(store_id=self.store_id, camera_id=self.camera_id, stage='converted').inc(len(order_ids))
 
     def get_funnel_metrics(self) -> List[Dict[str, int]]:
         entered_store = self.redis.smembers(f'{self._funnel_prefix()}:entered_store') or set()

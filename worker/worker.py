@@ -167,7 +167,7 @@ async def main():
             if not os.path.exists(layout_path):
                 layout_path = "/app/config/store_layout.json"
             print(f"Using layout: {layout_path}")
-            processor = VideoProcessor(layout_path=layout_path)
+            processor = VideoProcessor(layout_path=layout_path, browse_threshold_seconds=10)
             print("VideoProcessor initialized")
         except Exception as exc:
             print(f"Warning: VideoProcessor initialization failed: {exc}")

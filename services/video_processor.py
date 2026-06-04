@@ -13,7 +13,7 @@ class VideoProcessor:
         self,
         layout_path: str = 'store_layout.json',
         zones_path: str = 'zones.json',
-        browse_threshold_seconds: int = 120,
+        browse_threshold_seconds: int = 10,
     ):
         self.zone_manager = ZoneManager(layout_path=layout_path, zones_path=zones_path)
         self.browse_threshold_seconds = browse_threshold_seconds
