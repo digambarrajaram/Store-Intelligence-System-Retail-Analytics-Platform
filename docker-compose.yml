@@ -400,6 +400,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-/api/v1}
         VITE_WS_URL: ${VITE_WS_URL:-}
+        VITE_ACTIVE_CAMERAS: ${VITE_ACTIVE_CAMERAS:-8}
 
     image: digya285/store-intelligence-dashboard:latest
     hostname: dashboard
