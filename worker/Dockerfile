@@ -8,14 +8,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY worker/requirements.txt .
 
 # Pre-install headless opencv BEFORE ultralytics so it doesn't pull in the GUI version
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir --root-user-action=ignore opencv-python-headless && \
     pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
-COPY . .
-COPY services/ /app/services/
+COPY worker/ .
+COPY services/ ./services/
+COPY config/ ./config/
 
 CMD ["python", "worker.py"]
