@@ -7,5 +7,21 @@ export default defineConfig({
   server: {
     host: true, // needed for Docker container mapping
     port: 3000
-  }
+  },
+  // Vercel deployment: use relative base path
+  base: '/',
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    // Optimize for production
+    minify: 'terser',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          charts: ['recharts'],
+        },
+      },
+    },
+  },
 })

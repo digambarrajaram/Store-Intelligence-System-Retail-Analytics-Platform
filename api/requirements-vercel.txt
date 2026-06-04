@@ -1,0 +1,19 @@
+# Vercel Serverless Function dependencies
+# These are installed in the Vercel Python runtime environment.
+# Only include what's needed for the serverless API endpoints.
+
+fastapi>=0.109.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.9
+pandas>=2.0.0
+httpx>=0.26.0
+
+# Redis (optional — for connecting to Upstash or other Redis providers)
+redis>=5.0.0
+
+# Vercel ASGI adapter
+vercel-asgi>=0.1.0
+
+# Mangum fallback (if vercel_asgi is not available)
+mangum>=0.17.0

@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "buildCommand": "cd dashboard && npm install --include=dev --legacy-peer-deps && npm run build",
+  "outputDirectory": "dashboard/dist",
+  "installCommand": "",
+  "functions": {
+    "api/**/*.py": {
+      "runtime": "python3.11",
+      "maxDuration": 30,
+      "memory": 512
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/ws/alerts",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/health",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/metrics",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": "1"
+  }
+}

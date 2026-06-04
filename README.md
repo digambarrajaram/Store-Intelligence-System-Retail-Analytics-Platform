@@ -249,3 +249,128 @@ store-intelligence-system/
    Visit `http://localhost:3000` to see live charts and anomaly feed (requires simulated data for meaningful visualization).
 
 All endpoints should respond within 2 seconds. Stop the stack with `docker compose down`.
+
+## Vercel Deployment
+
+The project can be deployed to Vercel as a **serverless application** with the FastAPI backend running as a Python Serverless Function and the React dashboard as a static site.
+
+### Architecture on Vercel
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Vercel Platform                        │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  Static Assets (dashboard/dist)                   │    │
+│  │  → Served via Vercel Edge Network                 │    │
+│  └──────────────────────────────────────────────────┘    │
+│                          │                                │
+│                          ▼                                │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  Python Serverless Function (api/index.py)        │    │
+│  │  → FastAPI app adapted for Vercel                 │    │
+│  │  → Graceful degradation without Redis/Kafka       │    │
+│  └──────────────────────────────────────────────────┘    │
+│                          │                                │
+│                          ▼                                │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  Upstash Redis (optional)                        │    │
+│  │  → Serverless Redis compatible with Vercel       │    │
+│  └──────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Prerequisites
+
+1. **Vercel Account** — [vercel.com](https://vercel.com)
+2. **Vercel CLI** (optional): `npm i -g vercel`
+3. **GitHub repository** connected to Vercel
+
+### Quick Deploy
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/digambarrajaram/store-intelligence-system)
+
+### Manual Deployment Steps
+
+1. **Push to GitHub** (if not already done):
+   ```bash
+   git add .
+   git commit -m "Add Vercel deployment configuration"
+   git push origin main
+   ```
+
+2. **Import project in Vercel Dashboard**:
+   - Go to [vercel.com/new](https://vercel.com/new)
+   - Import your GitHub repository
+   - Framework preset: **Vite**
+   - Build command: `cd dashboard && npm install --include=dev --legacy-peer-deps && npm run build`
+   - Output directory: `dashboard/dist`
+   - Root directory: (leave as `./`)
+
+3. **Configure Environment Variables** in Vercel Dashboard → Settings → Environment Variables:
+
+   | Variable | Value | Description |
+   |----------|-------|-------------|
+   | `REDIS_HOST` | `your-upstash-host.upstash.io` | Upstash Redis host (optional) |
+   | `REDIS_PORT` | `6379` | Redis port |
+   | `REDIS_PASSWORD` | `your-password` | Redis password |
+   | `VITE_API_URL` | `/api/v1` | API base path |
+   | `VITE_WS_URL` | `wss://your-project.vercel.app/ws/alerts` | WebSocket URL |
+   | `VITE_ACTIVE_CAMERAS` | `4` | Number of active cameras |
+   | `PYTHONUNBUFFERED` | `1` | Python logging |
+
+4. **Deploy**: Vercel will automatically deploy on every push to the main branch.
+
+### Files Added for Vercel
+
+| File | Purpose |
+|------|---------|
+| `vercel.json` | Vercel project configuration (routes, functions, build settings) |
+| `api/index.py` | Vercel Serverless Function entry point (adapts FastAPI) |
+| `api/requirements-vercel.txt` | Python dependencies for the serverless function |
+| `.vercelignore` | Files to exclude from Vercel deployment |
+| `.env.vercel.example` | Template for Vercel environment variables |
+
+### Important Notes
+
+- **WebSocket**: Vercel's serverless functions do not support persistent WebSocket connections. The `/ws/alerts` endpoint will respond with HTTP 400 in the serverless environment. For real-time features, consider using Vercel's Edge Functions or a third-party service like Pusher.
+- **Redis**: The API works without Redis (returns zero/empty data). For full functionality, connect to [Upstash Redis](https://upstash.com) (serverless Redis compatible with Vercel).
+- **Kafka**: Not available in Vercel. The video processing workers remain as Docker containers.
+- **Video Processing**: The YOLOv8 workers (`worker/`) are not deployed to Vercel. They continue to run via Docker Compose.
+- **Cold Starts**: Python serverless functions may experience cold starts (1-3 seconds). The API is designed to handle this gracefully.
+- **Timeout**: Vercel Hobby plan functions have a 10-second timeout. Pro plans support up to 60 seconds for Python functions.
+- **File Size**: The Python runtime has a 50MB limit for the function bundle. The `requirements-vercel.txt` keeps dependencies minimal.
+
+### Local Testing (Vercel Emulation)
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Run locally with Vercel emulation
+vercel dev
+
+# This will serve:
+# - Dashboard at http://localhost:3000
+# - API at http://localhost:3000/api/v1/*
+# - Health at http://localhost:3000/health
+```
+
+### Hybrid Architecture
+
+For full functionality, the system uses a hybrid approach:
+
+| Component | Deployment | Purpose |
+|-----------|------------|---------|
+| **Dashboard** | Vercel (static) | React frontend |
+| **API** | Vercel (serverless) | REST API endpoints |
+| **Video Workers** | Docker Compose | YOLOv8 video processing |
+| **Kafka** | Docker Compose | Message broker |
+| **Redis** | Upstash / Docker | State & caching |
+| **Prometheus** | Docker Compose | Metrics collection |
+| **Grafana** | Docker Compose | Visualization |
+
+```bash
+# Run workers locally (they connect to Vercel API via Redis)
+docker compose up -d zookeeper kafka redis worker_store1_cam1
+```

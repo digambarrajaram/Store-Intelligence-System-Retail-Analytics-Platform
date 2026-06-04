@@ -1,0 +1,37 @@
+# Ignore Docker-related files (not needed for Vercel)
+Dockerfile
+Dockerfile.api
+docker-compose.yml
+entrypoint.sh
+
+# Ignore worker code (video processing runs on Docker, not Vercel)
+worker/
+
+# Ignore detection module (runs on Docker workers)
+detection/
+
+# Ignore events module (Kafka-based, runs on Docker)
+events/
+
+# Ignore Grafana and Prometheus configs
+grafana/
+prometheus/
+
+# Ignore test files
+tests/
+
+# Ignore config files (cameras.json, etc. — use env vars on Vercel)
+config/
+
+# Ignore documentation
+CHOICES.md
+DESIGN.md
+
+# Ignore development files
+.env.example
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
