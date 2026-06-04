@@ -3,24 +3,27 @@ import { FunnelChart as RechartsFunnelChart, Funnel, Tooltip, ResponsiveContaine
 import { usePolling } from '../hooks/usePolling';
 import { FunnelData } from '../types/api';
 
-interface RawFunnelResponse {
-  entered_store?: number;
-  browsed_gt_2min?: number;
-  reached_checkout_zone?: number;
-  converted?: number;
-}
-
 const normalizeFunnelResponse = (payload: any): FunnelData[] => {
+  // API returns an array of { step: string, value: number } objects
   if (Array.isArray(payload)) {
-    return payload;
+    const findStep = (stepName: string): number => {
+      const item = payload.find((p: any) => p?.step === stepName);
+      return item ? Number(item.value) || 0 : 0;
+    };
+    return [
+      { step: 'Entered Store', value: findStep('Entered Store') },
+      { step: 'Browsed > 2 min', value: findStep('Browsed > 2 min') },
+      { step: 'Reached Checkout', value: findStep('Reached Checkout') },
+      { step: 'Converted', value: findStep('Converted') },
+    ];
   }
 
-  const raw = payload as RawFunnelResponse;
+  // Fallback: flat object format { entered_store, browsed_gt_2min, reached_checkout_zone, converted }
   return [
-    { step: 'Entered Store', value: Number(raw.entered_store || 0) },
-    { step: 'Browsed > 2 min', value: Number(raw.browsed_gt_2min || 0) },
-    { step: 'Checkout Zone', value: Number(raw.reached_checkout_zone || 0) },
-    { step: 'Converted', value: Number(raw.converted || 0) },
+    { step: 'Entered Store', value: Number(payload?.entered_store || 0) },
+    { step: 'Browsed > 2 min', value: Number(payload?.browsed_gt_2min || 0) },
+    { step: 'Reached Checkout', value: Number(payload?.reached_checkout_zone || 0) },
+    { step: 'Converted', value: Number(payload?.converted || 0) },
   ];
 };
 
@@ -103,7 +106,7 @@ export const FunnelChart = () => {
         </div>
         <div className="rounded-3xl border border-slate-700/50 bg-slate-950/80 p-4 text-sm text-slate-300">
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Checkout throughput</p>
-          <p className="mt-3 text-3xl font-semibold text-white">{data.find((item) => item.step === 'Checkout Zone')?.value || 0}</p>
+          <p className="mt-3 text-3xl font-semibold text-white">{data.find((item) => item.step === 'Reached Checkout')?.value || 0}</p>
           <p className="mt-2 text-xs text-slate-500">Customers reached checkout zone in the selected window.</p>
         </div>
       </div>

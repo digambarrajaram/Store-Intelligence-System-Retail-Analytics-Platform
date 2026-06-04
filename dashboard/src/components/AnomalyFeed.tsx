@@ -3,11 +3,6 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { Alert } from '../types/api';
 import { useEffect, useRef, useState } from 'react';
 
-interface AlertEvent {
-  type: string;
-  data: Alert;
-}
-
 export const AnomalyFeed = () => {
   const rawWsUrl = import.meta.env.VITE_WS_URL?.trim();
   // If VITE_WS_URL already contains /ws/alerts, use it directly.

@@ -2,13 +2,22 @@ import React from 'react';
 import { usePolling } from '../hooks/usePolling';
 import { KPIData } from '../types/api';
 
+const normalizeKPIResponse = (raw: any): KPIData => ({
+  currentOccupancy:      raw.currentOccupancy      ?? raw.current_occupancy       ?? 0,
+  occupancyTrend:        raw.occupancyTrend        ?? raw.occupancy_trend         ?? 'stable',
+  totalEntriesToday:     raw.totalEntriesToday     ?? raw.total_entries_today     ?? 0,
+  entriesTodaySparkline: raw.entriesTodaySparkline ?? raw.entries_today_sparkline ?? [],
+  conversionRate:        raw.conversionRate        ?? raw.conversion_rate         ?? 0,
+  activeAnomalies:       raw.activeAnomalies       ?? raw.active_anomalies        ?? 0,
+});
+
 const fetchKPIData = async (): Promise<KPIData> => {
   const apiUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim() : '/api/v1';
   const response = await fetch(`${apiUrl}/kpis`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch KPI data');
-  }
-  return response.json();
+  if (!response.ok) throw new Error('Failed to fetch KPI data');
+  const raw = await response.json();
+  console.log('[KPICards] raw:', raw);
+  return normalizeKPIResponse(raw);
 };
 
 export const KPICards = () => {
