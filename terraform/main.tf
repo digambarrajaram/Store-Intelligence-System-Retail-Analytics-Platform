@@ -26,7 +26,7 @@ resource "aws_instance" "store_instance" {
   }
 
   root_block_device {
-    volume_size           = 30
+    volume_size           = 50
     volume_type           = "gp3"
     encrypted             = true   # EBS encryption at rest
     delete_on_termination = true
@@ -73,7 +73,7 @@ resource "aws_vpc_security_group_ingress_rule" "public_ingress" {
 # Internal Infrastructure Ports (Restricted strictly to the local VPC / localhost loopback)
 # WARNING: Exposing 6379, 9090, 9093 to the public internet creates severe vulnerabilities.
 locals {
-  internal_ports = [6379, 9090, 9093]
+  internal_ports = [6379, 9090, 9093,3000]
 }
 
 resource "aws_vpc_security_group_ingress_rule" "internal_ingress" {
