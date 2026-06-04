@@ -249,8 +249,13 @@ async def get_kpis(
     converted_count = len(converted)
     conversion_rate = (converted_count / entered_store_count * 100) if entered_store_count > 0 else 0
     
-    # Get active anomalies count
+    # Get active anomalies count (sum per-camera counts as fallback)
     active_anomalies = int(await redis.get(f"store:{store_id}:active_anomalies") or 0)
+    if active_anomalies == 0:
+        # Fallback: sum per-camera anomaly counts
+        for cam_num in range(1, 5):
+            cam_anomalies = int(await redis.get(f"store:{store_id}:camera:camera_{cam_num}:anomaly_count") or 0)
+            active_anomalies += cam_anomalies
     
     return {
         "store_id": store_id,

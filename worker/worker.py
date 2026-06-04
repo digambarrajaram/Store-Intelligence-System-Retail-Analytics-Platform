@@ -300,9 +300,9 @@ async def main():
                 detections = []
                 for i in range(num_detections):
                     track_id = random.randint(1000, 9999)
-                    # Generate random bbox within 640x480
-                    x1 = random.randint(0, 500)
-                    y1 = random.randint(0, 400)
+                    # Generate random bbox within 1920x1080 to match layout zone definitions
+                    x1 = random.randint(0, 1800)
+                    y1 = random.randint(0, 1000)
                     x2 = x1 + random.randint(50, 140)
                     y2 = y1 + random.randint(80, 200)
                     bbox = [x1, y1, x2, y2]

@@ -24,12 +24,12 @@ class AlertEngine:
         self.store_id = store_id
         self.camera_id = camera_id
         self.thresholds = {
-            'overcrowding': 10,
-            'queue_congestion': 4,
-            'long_dwell_seconds': 120,
-            'traffic_spike_factor': 2.0,
+            'overcrowding': 3,
+            'queue_congestion': 2,
+            'long_dwell_seconds': 30,
+            'traffic_spike_factor': 1.5,
             'traffic_spike_window_sec': 300,
-            'checkout_bottleneck_min_visits': 5,
+            'checkout_bottleneck_min_visits': 2,
             'checkout_conversion_rate': 0.35,
             **(thresholds or {}),
         }

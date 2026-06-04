@@ -106,6 +106,13 @@ async def consume_kafka(app):
                     anomaly_count = int(await redis.get(f"store:{store_id}:camera:{camera_id}:anomaly_count") or 0)
                     await redis.set(f"store:{store_id}:camera:{camera_id}:anomaly_count", anomaly_count + 1)
 
+                # Update store-wide active anomalies count (sum of all camera anomaly counts)
+                total_anomalies = 0
+                for cam_num in range(1, 5):
+                    cam_anomalies = int(await redis.get(f"store:{store_id}:camera:camera_{cam_num}:anomaly_count") or 0)
+                    total_anomalies += cam_anomalies
+                await redis.set(f"store:{store_id}:active_anomalies", total_anomalies)
+
         except asyncio.CancelledError:
             print("Kafka consumer task cancelled")
             raise
