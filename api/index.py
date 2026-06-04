@@ -626,13 +626,18 @@ async def pipeline_status(
         return {"error": str(e)}
 
 
-# ── Vercel ASGI handler ────────────────────────────────────────────────────
+# ── Vercel handler ─────────────────────────────────────────────────────────
+# Vercel's Python runtime natively supports ASGI apps.
+# Export the FastAPI `app` directly — Vercel will detect and wrap it.
+# The `handler` alias is also provided for compatibility with vercel_asgi/mangum.
 
 try:
     from vercel_asgi import AsgiHandler
     handler = AsgiHandler(app)
 except ImportError:
-    # Fallback: if running locally or vercel_asgi not installed,
-    # provide a simple WSGI handler for Vercel's Python runtime
-    from mangum import Mangum
-    handler = Mangum(app, lifespan="off")
+    try:
+        from mangum import Mangum
+        handler = Mangum(app, lifespan="off")
+    except ImportError:
+        # Fallback: export the FastAPI app directly (Vercel natively supports ASGI)
+        handler = app
