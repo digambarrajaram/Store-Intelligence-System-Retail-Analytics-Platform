@@ -108,6 +108,7 @@ export const OccupancyChart = () => {
             stroke="#94a3b8" 
             style={{ fontSize: '12px' }}
             domain={[0, peak * 1.1]}
+            tickFormatter={(value) => Math.round(value).toString()}
           />
           <Tooltip 
             contentStyle={{ 

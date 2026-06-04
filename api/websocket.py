@@ -9,43 +9,13 @@ from fastapi.websockets import WebSocketState
 router = APIRouter()
 ws_router = APIRouter()  # Separate router for WebSocket without prefix
 
-# Allowed origins for WebSocket connections
-# Includes deployment and local development origins
-ALLOWED_ORIGINS = {
-    "http://65.0.204.95:3000",
-    "https://65.0.204.95:3000",
-    "http://localhost:3000",
-    "https://localhost:3000",
-    "http://localhost:5173",
-    "https://localhost:5173",
-    "http://localhost:8000",
-    "https://localhost:8000",
-    "http://api:8000",
-    "https://api:8000",
-}
-
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
         self.redis = None  # Will be set externally via init
 
     async def connect(self, websocket: WebSocket):
-        # Accept first, then validate origin.
-        # Calling close() before accept() causes Starlette to send HTTP 403.
         await websocket.accept()
-        # Validate origin - allow empty (non-browser clients, proxies stripping header)
-        # and known origins
-        origin = websocket.headers.get("origin", "")
-        if origin:
-            # Only reject if origin is present but not allowed
-            origin_allowed = any(
-                origin == allowed or origin.startswith(allowed.rstrip("/") + "/")
-                for allowed in ALLOWED_ORIGINS
-            )
-            if not origin_allowed:
-                print(f"WebSocket connection rejected: origin={origin}")
-                await websocket.close(code=1008)
-                return
         self.active_connections.add(websocket)
         # Send catch-up messages
         await self.send_catchup(websocket)
