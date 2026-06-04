@@ -16,5 +16,6 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
 COPY . .
+COPY services/ /app/services/
 
 CMD ["python", "worker.py"]
