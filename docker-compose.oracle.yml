@@ -1,0 +1,263 @@
+# ── Oracle Cloud Always Free Deployment ───────────────────────────────────
+# Scaled-down stack for 4 OCPU Ampere A1 (ARM64) with 24 GB RAM.
+# 9 containers: Zookeeper, Kafka, Redis, API, 2 workers, Dashboard, Prometheus, Grafana.
+#
+# Workers run in DEMO MODE — no video files needed, synthetic detections generated.
+# The full 8-worker stack is available in docker-compose.yml for on-prem/GPU hosts.
+#
+# SETUP:
+#   cp .env.example .env
+#   docker compose -f docker-compose.oracle.yml build
+#   docker compose -f docker-compose.oracle.yml up -d
+
+services:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    container_name: zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - store-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Oracle Cloud ARM64 memory constraints — limit Kafka heap
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms256M"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 30s
+      retries: 15
+      start_period: 120s
+    networks:
+      - store-net
+
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    container_name: redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - store-net
+
+  # ── API ───────────────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    hostname: api
+    container_name: api
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - store-net
+
+  # ── Workers (demo mode — no video files needed) ────────────────────────────
+  # Store 1 worker
+  worker_store1_cam1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: worker_store1_cam1
+    container_name: worker_store1_cam1
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - ./.model_cache:/root/.cache/ultralytics  # persist downloaded YOLO model
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
+      - CAMERA_ID=camera_1
+      - STORE_ID=store_1
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      # Demo mode: point to non-existent file → worker generates synthetic data
+      - VIDEO_SOURCE=demo
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_1:camera:camera_1:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - store-net
+
+  # Store 2 worker
+  worker_store2_cam1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: worker_store2_cam1
+    container_name: worker_store2_cam1
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - ./.model_cache:/root/.cache/ultralytics  # persist downloaded YOLO model
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - CAMERA_CONFIG_PATH=/app/config/cameras.json
+      - CAMERA_ID=camera_1
+      - STORE_ID=store_2
+      - MIN_CONFIDENCE=0.4
+      - FRAME_SKIP=3
+      # Demo mode: point to non-existent file → worker generates synthetic data
+      - VIDEO_SOURCE=demo
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.Redis(host='redis',port=6379, decode_responses=True); val=r.get('store:store_2:camera:camera_1:worker.alive'); exit(0 if val == '1' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - store-net
+
+  # ── Dashboard (React + Nginx) ─────────────────────────────────────────────
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+        VITE_WS_URL: ""
+        VITE_ACTIVE_CAMERAS: "2"
+    hostname: dashboard
+    container_name: dashboard
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - store-net
+
+  # ── Monitoring ────────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    hostname: prometheus
+    container_name: prometheus
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
+
+  grafana:
+    image: grafana/grafana:latest
+    hostname: grafana
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - store-net
+
+networks:
+  store-net:
+    driver: bridge

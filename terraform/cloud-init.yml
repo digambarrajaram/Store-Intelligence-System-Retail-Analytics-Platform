@@ -1,0 +1,45 @@
+#cloud-config
+# ── Oracle Cloud Always Free — Store Intelligence System bootstrap ──────────
+# This runs on first boot. Installs Docker, clones the repo, and starts the stack.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - git
+
+write_files:
+  - path: /home/ubuntu/.env
+    content: |
+      API_PORT=8000
+      GRAFANA_PASSWORD=admin
+      MIN_CONFIDENCE=0.4
+      FRAME_SKIP=3
+
+runcmd:
+  # Install Docker (ARM64 compatible)
+  - curl -fsSL https://get.docker.com | sh
+  - usermod -aG docker ubuntu
+
+  # Install Docker Compose plugin
+  - apt-get install -y docker-compose-plugin
+
+  # Clone the repository
+  - su - ubuntu -c 'git clone https://github.com/digambarrajaram/store-intelligence-system.git /home/ubuntu/store-intelligence-system'
+
+  # Copy env file
+  - cp /home/ubuntu/.env /home/ubuntu/store-intelligence-system/.env
+
+  # Pre-create model cache directory
+  - mkdir -p /home/ubuntu/store-intelligence-system/.model_cache
+
+  # Build and start the stack (runs as ubuntu user in background)
+  - su - ubuntu -c 'cd /home/ubuntu/store-intelligence-system && docker compose -f docker-compose.oracle.yml build 2>&1 | tee /home/ubuntu/build.log'
+  - su - ubuntu -c 'cd /home/ubuntu/store-intelligence-system && docker compose -f docker-compose.oracle.yml up -d 2>&1 | tee -a /home/ubuntu/build.log'
+
+final_message: "Store Intelligence System bootstrap complete. Dashboard at http://$PUBLIC_IP:3000 after ~5 minutes."

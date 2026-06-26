@@ -104,4 +104,11 @@ redis_data/
 # Prometheus data (if stored locally, but we use a volume)
 prometheus_data/
 
+# Terraform (infrastructure as code — keep .tf files, ignore local state)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+# AWS-specific old state (OCI Terraform state is in terraform/*.tfstate)
+
 # End of file
